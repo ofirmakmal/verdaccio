@@ -1,5 +1,99 @@
 # verdaccio
 
+## 6.0.0-6-next.19
+
+### Patch Changes
+
+- Updated dependencies [67406082]
+  - @verdaccio/ui-theme@6.0.0-6-next.9
+
+## 6.0.0-6-next.18
+
+### Patch Changes
+
+- Updated dependencies [d2c65da9]
+- Updated dependencies [55ee3fdd]
+  - @verdaccio/utils@6.0.0-6-next.5
+  - @verdaccio/cli@6.0.0-6-next.17
+  - @verdaccio/mock@6.0.0-6-next.7
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/node-api@6.0.0-6-next.17
+  - @verdaccio/ui-theme@6.0.0-6-next.8
+
+## 6.0.0-6-next.17
+
+### Patch Changes
+
+- @verdaccio/node-api@6.0.0-6-next.16
+- @verdaccio/cli@6.0.0-6-next.16
+- @verdaccio/ui-theme@6.0.0-6-next.8
+
+## 6.0.0-6-next.16
+
+### Patch Changes
+
+- Updated dependencies [0da7031e]
+  - @verdaccio/ui-theme@6.0.0-6-next.8
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/logger@6.0.0-6-next.4
+  - @verdaccio/mock@6.0.0-6-next.6
+  - @verdaccio/node-api@6.0.0-6-next.15
+  - @verdaccio/cli@6.0.0-6-next.15
+
+## 6.0.0-6-next.15
+
+### Patch Changes
+
+- Updated dependencies [aecbd226]
+  - @verdaccio/ui-theme@6.0.0-6-next.7
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/logger@6.0.0-6-next.4
+  - @verdaccio/mock@6.0.0-6-next.6
+  - @verdaccio/node-api@6.0.0-6-next.14
+  - @verdaccio/cli@6.0.0-6-next.14
+
+## 6.0.0-6-next.14
+
+### Patch Changes
+
+- @verdaccio/cli@6.0.0-6-next.13
+- @verdaccio/hooks@6.0.0-6-next.4
+- @verdaccio/mock@6.0.0-6-next.6
+- @verdaccio/node-api@6.0.0-6-next.13
+- @verdaccio/ui-theme@6.0.0-6-next.6
+
+## 6.0.0-6-next.13
+
+### Patch Changes
+
+- Updated dependencies [19d272d1]
+  - @verdaccio/cli@6.0.0-6-next.12
+  - @verdaccio/node-api@6.0.0-6-next.12
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/logger@6.0.0-6-next.4
+  - @verdaccio/mock@6.0.0-6-next.5
+  - @verdaccio/ui-theme@6.0.0-6-next.6
+
+## 6.0.0-6-next.12
+
+### Patch Changes
+
+- 648575aa: Bug Fixes
+
+  - fix escaped slash in namespaced packages
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/pull/2193
+
+- Updated dependencies [648575aa]
+  - @verdaccio/mock@6.0.0-6-next.5
+  - @verdaccio/ui-theme@6.0.0-6-next.6
+  - @verdaccio/utils@6.0.0-6-next.4
+  - @verdaccio/cli@6.0.0-6-next.11
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/node-api@6.0.0-6-next.11
+
 ## 6.0.0-6-next.11
 
 ### Major Changes

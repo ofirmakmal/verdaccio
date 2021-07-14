@@ -1,5 +1,72 @@
 # @verdaccio/node-api
 
+## 6.0.0-6-next.17
+
+### Patch Changes
+
+- @verdaccio/config@6.0.0-6-next.7
+- @verdaccio/server@6.0.0-6-next.16
+
+## 6.0.0-6-next.16
+
+### Patch Changes
+
+- @verdaccio/server@6.0.0-6-next.15
+
+## 6.0.0-6-next.15
+
+### Patch Changes
+
+- @verdaccio/logger@6.0.0-6-next.4
+- @verdaccio/server@6.0.0-6-next.14
+
+## 6.0.0-6-next.14
+
+### Patch Changes
+
+- @verdaccio/logger@6.0.0-6-next.4
+- @verdaccio/server@6.0.0-6-next.13
+
+## 6.0.0-6-next.13
+
+### Patch Changes
+
+- Updated dependencies [1b217fd3]
+  - @verdaccio/config@6.0.0-6-next.6
+  - @verdaccio/server@6.0.0-6-next.12
+
+## 6.0.0-6-next.12
+
+### Patch Changes
+
+- 19d272d1: fix: restore logger on init
+
+  Enable logger after parse configuration and log the very first step on startup phase.
+
+  ```bash
+   warn --- experiments are enabled, it is recommended do not use experiments in production comment out this section to disable it
+   info --- support for experiment [token]  is disabled
+   info --- support for experiment [search]  is disabled
+  (node:50831) Warning: config.logs is deprecated, rename configuration to "config.log"
+  (Use `node --trace-warnings ...` to show where the warning was created)
+   info --- http address http://localhost:4873/
+   info --- version: 6.0.0-6-next.11
+   info --- server started
+  ```
+
+- Updated dependencies [19d272d1]
+  - @verdaccio/server@6.0.0-6-next.11
+  - @verdaccio/logger@6.0.0-6-next.4
+
+## 6.0.0-6-next.11
+
+### Patch Changes
+
+- Updated dependencies [1810ed0d]
+- Updated dependencies [648575aa]
+  - @verdaccio/config@6.0.0-6-next.5
+  - @verdaccio/server@6.0.0-6-next.10
+
 ## 6.0.0-6-next.10
 
 ### Major Changes

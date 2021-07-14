@@ -25,8 +25,14 @@ export function validateName(name: string): boolean {
   if (_.isString(name) === false) {
     return false;
   }
+  let normalizedName: string = name.toLowerCase();
 
-  const normalizedName: string = name.toLowerCase();
+  const isScoped: boolean = name.startsWith('@') && name.includes('/');
+  const scopedName = name.split('/', 2)[1];
+
+  if (isScoped && !_.isUndefined(scopedName)) {
+    normalizedName = scopedName.toLowerCase();
+  }
 
   /**
    * Some context about the first regex
@@ -251,10 +257,6 @@ export function pad(str, max): string {
  */
 export function mask(str: string, charNum = 3): string {
   return `${str.substr(0, charNum)}...${str.substr(-charNum)}`;
-}
-
-export function encodeScopedUri(packageName): string {
-  return packageName.replace(/\//g, '%2f');
 }
 
 export function hasDiffOneKey(versions): boolean {

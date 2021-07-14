@@ -1,19 +1,14 @@
-FROM node:alpine
+FROM node:lts-alpine
 
-# Also exposing VSCode debug ports
-EXPOSE 8000 9929 9230
+# Create the docs website directory
+COPY . /verdaccio-website
 
-RUN \
-  apk add --no-cache python make g++ && \
-  apk add vips-dev fftw-dev --update-cache \
-  --repository http://dl-3.alpinelinux.org/alpine/edge/community \
-  --repository http://dl-3.alpinelinux.org/alpine/edge/main \
-  && rm -fR /var/cache/apk/*
+WORKDIR /verdaccio-website/website
 
-RUN npm install -g gatsby-cli
+RUN apk add --no-cache -t build-deps make gcc g++ python libtool autoconf automake && \
+    yarn install && \
+    apk del build-deps
 
-WORKDIR /app
-COPY ./package.json .
-RUN yarn install && yarn cache clean
-COPY . .
-CMD ["yarn", "develop", "-H", "0.0.0.0" ]
+EXPOSE 3000
+
+CMD ["yarn", "start"]

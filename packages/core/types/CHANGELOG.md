@@ -1,5 +1,69 @@
 # Change Log
 
+## 11.0.0-6-next.7
+
+### Minor Changes
+
+- 0da7031e: allow disable login on ui and endpoints
+
+  To be able disable the login, set `login: false`, anything else would enable login. This flag will disable access via UI and web endpoints.
+
+  ```yml
+  web:
+    title: verdaccio
+    login: false
+  ```
+
+## 11.0.0-6-next.6
+
+### Minor Changes
+
+- aecbd226: web: allow ui hide package managers on sidebar
+
+  If there is a package manager of preference over others, you can define the package managers to be displayed on the detail page and sidebar, just define in the `config.yaml` and web section the list of package managers to be displayed.
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+      - pnpm
+      - yarn
+      # - npm
+  ```
+
+  To disable all package managers, just define empty:
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+  ```
+
+  and the section would be hidden.
+
+## 11.0.0-6-next.5
+
+### Patch Changes
+
+- 19d272d1: fix: restore logger on init
+
+  Enable logger after parse configuration and log the very first step on startup phase.
+
+  ```bash
+   warn --- experiments are enabled, it is recommended do not use experiments in production comment out this section to disable it
+   info --- support for experiment [token]  is disabled
+   info --- support for experiment [search]  is disabled
+  (node:50831) Warning: config.logs is deprecated, rename configuration to "config.log"
+  (Use `node --trace-warnings ...` to show where the warning was created)
+   info --- http address http://localhost:4873/
+   info --- version: 6.0.0-6-next.11
+   info --- server started
+  ```
+
 ## 11.0.0-6-next.4
 
 ### Major Changes

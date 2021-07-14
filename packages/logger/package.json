@@ -40,13 +40,13 @@
   },
   "dependencies": {
     "@verdaccio/logger-prettify": "workspace:6.0.0-alpha.3",
-    "debug": "^4.2.0",
-    "lodash": "~4.17.20",
-    "pino": "^6.7.0"
+    "debug": "^4.3.1",
+    "lodash": "~4.17.21",
+    "pino": "^6.11.3"
   },
   "devDependencies": {
     "@types/pino": "^6.3.3",
-    "@verdaccio/types": "workspace:11.0.0-6-next.4"
+    "@verdaccio/types": "workspace:11.0.0-6-next.7"
   },
   "funding": {
     "type": "opencollective",

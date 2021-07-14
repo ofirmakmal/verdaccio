@@ -1,6 +1,6 @@
 {
   "name": "@verdaccio/local-storage",
-  "version": "11.0.0-6-next.5",
+  "version": "11.0.0-6-next.6",
   "description": "Local storage implementation",
   "keywords": [
     "private",
@@ -41,14 +41,13 @@
     "@verdaccio/file-locking": "workspace:11.0.0-alpha.3",
     "@verdaccio/streams": "workspace:11.0.0-alpha.3",
     "async": "^3.2.0",
-    "debug": "^4.1.1",
-    "lodash": "^4.17.20",
-    "lowdb": "1.0.0",
-    "mkdirp": "^0.5.5"
+    "debug": "^4.3.1",
+    "lodash": "^4.17.21",
+    "lowdb": "1.0.0"
   },
   "devDependencies": {
     "@types/minimatch": "^3.0.3",
-    "@verdaccio/types": "workspace:11.0.0-6-next.4",
+    "@verdaccio/types": "workspace:11.0.0-6-next.7",
     "minimatch": "^3.0.4",
     "rmdir-sync": "^1.0.1"
   },

@@ -50,7 +50,7 @@ class Config implements AppConfig {
 
   public constructor(config: ConfigRuntime) {
     const self = this;
-    this.storage = config.storage;
+    this.storage = process.env.VERDACCIO_STORAGE_PATH || config.storage;
     this.config_path = config.config_path;
     this.plugins = config.plugins;
     this.security = _.merge(defaultSecurity, config.security);
@@ -106,7 +106,7 @@ class Config implements AppConfig {
   /**
    * Store or create whether receive a secret key
    */
-  public checkSecretKey(secret: string): string {
+  public checkSecretKey(secret?: string): string {
     debug('check secret key');
     if (_.isString(secret) && _.isEmpty(secret) === false) {
       this.secret = secret;

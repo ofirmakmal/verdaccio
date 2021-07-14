@@ -29,14 +29,8 @@ export default class S3PackageManager implements ILocalPackageManager {
     this.config = config;
     this.packageName = packageName;
     this.logger = logger;
-    const {
-      endpoint,
-      region,
-      s3ForcePathStyle,
-      accessKeyId,
-      secretAccessKey,
-      sessionToken,
-    } = config;
+    const { endpoint, region, s3ForcePathStyle, accessKeyId, secretAccessKey, sessionToken } =
+      config;
 
     this.s3 = new S3({
       endpoint,
@@ -172,7 +166,7 @@ export default class S3PackageManager implements ILocalPackageManager {
       this.s3,
       {
         Bucket: this.config.bucket,
-        Prefix: `${this.packagePath}`,
+        Prefix: addTrailingSlash(this.packagePath),
       },
       function (err) {
         if (err && is404Error(err as VerdaccioError)) {

@@ -5,7 +5,6 @@ import cors from 'cors';
 import RateLimit from 'express-rate-limit';
 import { HttpError } from 'http-errors';
 
-import { Storage } from '@verdaccio/store';
 import { loadPlugin } from '@verdaccio/loaders';
 import { Auth } from '@verdaccio/auth';
 import apiEndpoint from '@verdaccio/api';
@@ -17,8 +16,8 @@ import webMiddleware from '@verdaccio/web';
 import { ConfigRuntime } from '@verdaccio/types';
 
 import { IAuth, IBasicAuth } from '@verdaccio/auth';
-import { IStorageHandler } from '@verdaccio/store';
-import { setup, logger } from '@verdaccio/logger';
+import { Storage, IStorageHandler } from '@verdaccio/store';
+import { logger } from '@verdaccio/logger';
 import { log, final, errorReportingMiddleware } from '@verdaccio/middleware';
 import AuditMiddleware from 'verdaccio-audit';
 
@@ -143,7 +142,6 @@ const defineAPI = function (config: IConfig, storage: IStorageHandler): any {
 };
 
 export default (async function (configHash: ConfigRuntime): Promise<any> {
-  setup(configHash.logs);
   const config: IConfig = new AppConfig(_.cloneDeep(configHash));
   // register middleware plugins
   const plugin_params = {
@@ -157,8 +155,8 @@ export default (async function (configHash: ConfigRuntime): Promise<any> {
     (plugin: IPluginStorageFilter<IConfig>) => plugin.filter_metadata
   );
   const storage: IStorageHandler = new Storage(config);
-  // waits until init calls have been initialized
   try {
+    // waits until init calls have been initialized
     await storage.init(config, filters);
   } catch (err) {
     logger.error({ error: err.msg }, 'storage has failed: @{error}');

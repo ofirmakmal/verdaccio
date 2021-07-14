@@ -32,7 +32,7 @@ Google Cloud Storage** or create your own plugin.
 Install with npm:
 
 ```bash
-npm install --global verdaccio@6-next --https://registry.verdaccio.org/
+npm install --global verdaccio@6-next --registry https://registry.verdaccio.org/
 ```
 
 > Published on a temporary registry while setup is ready to publish on npmjs
@@ -69,14 +69,13 @@ booted in a couple of seconds, fast enough for any CI. Many open source projects
 
 ## Talks
 
-### **Node.js Dependency Confusion Attacks & Vulnerabilities in Go Binaries**.
+### **BeerJS Cba Meetup No. 53**.
 
-[RSVP](https://www.meetup.com/es-ES/devseccon-germany/events/276990087) to join the talk.
-
-[![verdaccio openjsworld](https://cdn.verdaccio.dev/readme/devseccon.png)](https://www.meetup.com/es-ES/devseccon-germany/events/276990087/)
+[![beerjscrb](https://user-images.githubusercontent.com/558752/121940843-d33c0000-cd4e-11eb-9819-f70cf07cb2f9.jpeg)](https://www.youtube.com/watch?v=6SyjqBmS49Y&ab_channel=BeerJSCba)
 
 You might want to check out as well our previous talks:
 
+- [Node.js Dependency Confusion Attacks - April 2021 - **Juan Picado\***](https://www.youtube.com/watch?v=qTRADSp3Hpo)
 - [**OpenJS World 2020** about \*Cover your Projects with a Multi purpose Lightweight Node.js Registry - **Juan Picado\***](https://www.youtube.com/watch?v=oVCjDWeehAQ)
 - [ViennaJS Meetup - Introduction to Verdaccio by **Priscila Olivera** and **Juan Picado**](https://www.youtube.com/watch?v=hDIFKzmoCa)
 - [Open Source? trivago - Verdaccio (**Ayush** and **Juan Picado**) January 2020](https://www.youtube.com/watch?v=A5CWxJC9xzc)
@@ -247,6 +246,8 @@ Thanks to the following companies to help us to achieve our goals providing free
 [![jetbrain](assets/thanks/jetbrains/logo.png)](https://www.jetbrains.com/)
 [![crowdin](assets/thanks/crowdin/logo.png)](https://crowdin.com/)
 [![browserstack](https://cdn.verdaccio.dev/readme/browserstack_logo.png)](https://www.browserstack.com/)
+[![netlify](https://www.netlify.com/img/global/badges/netlify-color-accent.svg)](https://www.netlify.com/)
+[![algolia](https://cdn.verdaccio.dev/sponsor/logo/algolia/logo.png)](https://algolia.com/)
 
 Verdaccio also is part of to the [Docker Open Source Program](https://www.docker.com/blog/expanded-support-for-open-source-software-projects/).
 

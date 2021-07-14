@@ -26,23 +26,22 @@
     "verdaccio"
   ],
   "engines": {
-    "node": ">=10",
+    "node": ">=12",
     "npm": ">=6"
   },
   "dependencies": {
     "@verdaccio/commons-api": "workspace:11.0.0-alpha.3",
     "@verdaccio/logger": "workspace:6.0.0-6-next.4",
-    "debug": "^4.2.0",
+    "debug": "^4.3.1",
     "handlebars": "4.5.3",
-    "node-fetch": "^2.6.1",
-    "request": "2.87.0"
+    "undici": "^4.0.0",
+    "undici-fetch": "^1.0.0-rc.1"
   },
   "devDependencies": {
-    "@verdaccio/auth": "workspace:6.0.0-6-next.6",
+    "@verdaccio/auth": "workspace:6.0.0-6-next.9",
     "@verdaccio/commons-api": "workspace:11.0.0-alpha.3",
-    "@verdaccio/config": "workspace:6.0.0-6-next.4",
-    "@verdaccio/types": "workspace:11.0.0-6-next.4",
-    "nock": "^13.0.4"
+    "@verdaccio/config": "workspace:6.0.0-6-next.7",
+    "@verdaccio/types": "workspace:11.0.0-6-next.7"
   },
   "scripts": {
     "clean": "rimraf ./build",

@@ -1,6 +1,6 @@
 import zlib from 'zlib';
 import Stream from 'stream';
-import URL, { UrlWithStringQuery } from 'url';
+import URL from 'url';
 import JSONStream from 'JSONStream';
 import _ from 'lodash';
 import request from 'request';
@@ -64,7 +64,6 @@ export interface IProxy {
   fail_timeout: number;
   upname: string;
   fetchTarball(url: string): IReadTarball;
-  isUplinkValid(url: string): boolean;
   search(options: any);
   getRemoteMetadata(name: string, options: any, callback: Callback): void;
 }
@@ -437,27 +436,6 @@ class ProxyStorage implements IProxy {
   }
 
   /**
-   * Determine whether can fetch from the provided URL
-   * @param {*} url
-   * @return {Boolean}
-   */
-  public isUplinkValid(url: string): boolean {
-    // $FlowFixMe
-    const urlParsed: UrlWithStringQuery = URL.parse(url);
-    const isHTTPS = (urlDomainParsed: URL): boolean =>
-      urlDomainParsed.protocol === 'https:' &&
-      (urlParsed.port === null || urlParsed.port === '443');
-    const getHost = (urlDomainParsed): boolean =>
-      isHTTPS(urlDomainParsed) ? urlDomainParsed.hostname : urlDomainParsed.host;
-    const isMatchProtocol: boolean = urlParsed.protocol === this.url.protocol;
-    const isMatchHost: boolean = getHost(urlParsed) === getHost(this.url);
-    // @ts-ignore
-    const isMatchPath: boolean = urlParsed.path.indexOf(this.url.path) === 0;
-
-    return isMatchProtocol && isMatchHost && isMatchPath;
-  }
-
-  /**
    * Get a remote package metadata
    * @param {*} name package name
    * @param {*} options request options, eg: eTag.
@@ -502,7 +480,7 @@ class ProxyStorage implements IProxy {
    * @param {String} url
    * @return {Stream}
    */
-  fetchTarball(url: string) {
+  public fetchTarball(url: string) {
     const stream = new ReadTarball({});
     let current_length = 0;
     let expected_length;

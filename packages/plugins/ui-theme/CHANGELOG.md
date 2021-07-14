@@ -1,5 +1,68 @@
 # @verdaccio/ui-theme
 
+## 6.0.0-6-next.9
+
+### Minor Changes
+
+- 67406082: upgrade to react@17 and other dependencies
+
+## 6.0.0-6-next.8
+
+### Minor Changes
+
+- 0da7031e: allow disable login on ui and endpoints
+
+  To be able disable the login, set `login: false`, anything else would enable login. This flag will disable access via UI and web endpoints.
+
+  ```yml
+  web:
+    title: verdaccio
+    login: false
+  ```
+
+## 6.0.0-6-next.7
+
+### Minor Changes
+
+- aecbd226: web: allow ui hide package managers on sidebar
+
+  If there is a package manager of preference over others, you can define the package managers to be displayed on the detail page and sidebar, just define in the `config.yaml` and web section the list of package managers to be displayed.
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+      - pnpm
+      - yarn
+      # - npm
+  ```
+
+  To disable all package managers, just define empty:
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+  ```
+
+  and the section would be hidden.
+
+## 6.0.0-6-next.6
+
+### Patch Changes
+
+- 648575aa: Bug Fixes
+
+  - fix escaped slash in namespaced packages
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/pull/2193
+
 ## 5.0.0-alpha.5
 
 ### Major Changes

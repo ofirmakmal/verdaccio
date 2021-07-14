@@ -1,5 +1,47 @@
 # @verdaccio/store
 
+## 6.0.0-6-next.10
+
+### Patch Changes
+
+- Updated dependencies [d2c65da9]
+  - @verdaccio/utils@6.0.0-6-next.5
+  - @verdaccio/config@6.0.0-6-next.7
+  - @verdaccio/proxy@6.0.0-6-next.9
+  - @verdaccio/loaders@6.0.0-6-next.4
+
+## 6.0.0-6-next.9
+
+### Patch Changes
+
+- 5ddfa526: Fix the search by exact name of the package
+
+  Full package name queries was not finding anithing. It was happening
+  becouse of stemmer of [lunr.js](https://lunrjs.com/).
+
+  To fix this, the stemmer of [lunr.js](https://lunrjs.com/) was removed from search pipeline.
+
+## 6.0.0-6-next.8
+
+### Patch Changes
+
+- Updated dependencies [1b217fd3]
+  - @verdaccio/config@6.0.0-6-next.6
+  - @verdaccio/local-storage@11.0.0-6-next.6
+  - @verdaccio/loaders@6.0.0-6-next.4
+  - @verdaccio/proxy@6.0.0-6-next.8
+
+## 6.0.0-6-next.7
+
+### Patch Changes
+
+- Updated dependencies [1810ed0d]
+- Updated dependencies [648575aa]
+  - @verdaccio/config@6.0.0-6-next.5
+  - @verdaccio/utils@6.0.0-6-next.4
+  - @verdaccio/loaders@6.0.0-6-next.4
+  - @verdaccio/proxy@6.0.0-6-next.7
+
 ## 6.0.0-6-next.6
 
 ### Patch Changes

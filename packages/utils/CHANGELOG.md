@@ -1,5 +1,23 @@
 # @verdaccio/utils
 
+## 6.0.0-6-next.5
+
+### Patch Changes
+
+- d2c65da9: Fixed the validation of the name when searching for a tarball that have scoped package name
+
+## 6.0.0-6-next.4
+
+### Patch Changes
+
+- 648575aa: Bug Fixes
+
+  - fix escaped slash in namespaced packages
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/pull/2193
+
 ## 5.0.0-alpha.3
 
 ### Patch Changes
