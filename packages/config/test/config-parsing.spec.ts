@@ -1,51 +1,68 @@
-import path from 'path';
-import { parseConfigFile } from '../src';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { describe, expect, test } from 'vitest';
 
-describe('Package access utilities', () => {
-  const parseConfigurationFile = (conf) => {
-    const { name, ext } = path.parse(conf);
-    const format = ext.startsWith('.') ? ext.substring(1) : 'yaml';
+import { fileUtils } from '@verdaccio/core';
 
-    return path.join(__dirname, `./partials/config/${format}/${name}.${format}`);
-  };
+import { fromJStoYAML, parseConfigFile } from '../src';
+import { parseConfigurationFile } from './utils';
 
-  describe('JSON format', () => {
-    test('parse default.json', () => {
-      const config = parseConfigFile(parseConfigurationFile('default.json'));
+describe('parse', () => {
+  describe('parseConfigFile', () => {
+    describe('non-YAML formats are rejected', () => {
+      test('throws for .json file', () => {
+        expect(function () {
+          parseConfigFile(parseConfigurationFile('default.json'));
+        }).toThrow(/config file must be a YAML file/);
+      });
 
-      expect(config.storage).toBeDefined();
+      test('throws for .js file', () => {
+        expect(function () {
+          parseConfigFile(parseConfigurationFile('default.js'));
+        }).toThrow(/config file must be a YAML file/);
+      });
+
+      test('throws when the file does not exist regardless of extension', () => {
+        expect(function () {
+          parseConfigFile(parseConfigurationFile('not-exists.json'));
+        }).toThrow(/config file does not exist or not reachable/);
+      });
     });
 
-    test('parse invalid.json', () => {
-      expect(function () {
-        parseConfigFile(parseConfigurationFile('invalid.json'));
-      }).toThrow(/Error/);
+    test('resolves YAML merge keys (anchors + <<) shared across sections', () => {
+      const config = parseConfigFile(parseConfigurationFile('merge-keys.yaml'));
+      expect(config.uplinks).toEqual({
+        npmjs: { cache: true, maxage: '2m', url: 'https://registry.npmjs.org/' },
+        private: { cache: true, maxage: '2m', url: 'https://example.org/' },
+      });
     });
 
-    test('parse not-exists.json', () => {
-      expect(function () {
-        parseConfigFile(parseConfigurationFile('not-exists.json'));
-      }).toThrow(/Error/);
+    test('treats an empty config file as an empty config', () => {
+      const config = parseConfigFile(parseConfigurationFile('empty.yaml'));
+      expect(config.configPath).toEqual(parseConfigurationFile('empty.yaml'));
+      expect(config.storage).toBeUndefined();
+    });
+
+    test('treats a comment-only config file as an empty config', () => {
+      const config = parseConfigFile(parseConfigurationFile('comment-only.yaml'));
+      expect(config.storage).toBeUndefined();
     });
   });
 
-  describe('JavaScript format', () => {
-    test('parse default.js', () => {
-      const config = parseConfigFile(parseConfigurationFile('default.js'));
-
-      expect(config.storage).toBeDefined();
-    });
-
-    test('parse invalid.js', () => {
-      expect(function () {
-        parseConfigFile(parseConfigurationFile('invalid.js'));
-      }).toThrow(/Error/);
-    });
-
-    test('parse not-exists.js', () => {
-      expect(function () {
-        parseConfigFile(parseConfigurationFile('not-exists.js'));
-      }).toThrow(/Error/);
+  describe('fromJStoYAML', () => {
+    test('basic conversion roundtrip', async () => {
+      // from to js to yaml
+      const config = require('./partials/config/js/from-js-to-yaml');
+      const yaml = fromJStoYAML(config) as string;
+      expect(yaml).toMatchSnapshot();
+      const tempFolder = await fileUtils.createTempFolder('fromJStoYAML-test');
+      const configPath = path.join(tempFolder, 'config.yaml');
+      await writeFile(configPath, yaml);
+      const parsed = parseConfigFile(configPath);
+      expect(parsed.configPath).toEqual(path.join(tempFolder, 'config.yaml'));
+      expect(parsed.storage).toEqual('./storage_default_storage');
+      expect(parsed.uplinks).toEqual({ npmjs: { url: 'http://localhost:4873/' } });
+      expect(parsed.log).toEqual({ type: 'stdout', format: 'pretty', level: 'warn' });
     });
   });
 });

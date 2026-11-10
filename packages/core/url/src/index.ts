@@ -1,10 +1,9 @@
-import { URL } from 'url';
-import _ from 'lodash';
 import buildDebug from 'debug';
-import isURLValidator from 'validator/lib/isURL';
+import type { IncomingHttpHeaders } from 'node:http';
+import { URL } from 'node:url';
+import validator from 'validator';
 
-import { ConfigYaml } from '@verdaccio/types';
-import { HEADERS } from '@verdaccio/commons-api';
+import { HEADERS } from '@verdaccio/core';
 
 const debug = buildDebug('verdaccio:core:url');
 
@@ -19,7 +18,7 @@ export function isURLhasValidProtocol(uri: string): boolean {
 }
 
 export function isHost(url: string = '', options = {}): boolean {
-  return isURLValidator(url, {
+  return validator.isURL(url, {
     require_host: true,
     allow_trailing_dot: false,
     require_valid_protocol: false,
@@ -33,14 +32,14 @@ export function isHost(url: string = '', options = {}): boolean {
 /**
  * Detect running protocol (http or https)
  */
-export function getWebProtocol(headerProtocol: string | void, protocol: string): string {
+export function getWebProtocol(headerProtocol: string | undefined, protocol: string): string {
   let returnProtocol;
   const [, defaultProtocol] = validProtocols;
   // HAProxy variant might return http,http with X-Forwarded-Proto
   if (typeof headerProtocol === 'string' && headerProtocol !== '') {
     debug('header protocol: %o', protocol);
     const commaIndex = headerProtocol.indexOf(',');
-    returnProtocol = commaIndex > 0 ? headerProtocol.substr(0, commaIndex) : headerProtocol;
+    returnProtocol = commaIndex > 0 ? headerProtocol.slice(0, commaIndex) : headerProtocol;
   } else {
     debug('req protocol: %o', headerProtocol);
     returnProtocol = protocol;
@@ -85,24 +84,63 @@ export function validateURL(publicUrl: string | void) {
       throw Error('invalid protocol');
     }
     return true;
-  } catch (err) {
+  } catch {
     // TODO: add error logger here
     return false;
   }
 }
 
-export function getPublicUrl(url_prefix: string = '', req): string {
+export type RequestOptions = {
+  /**
+   * Request host (without port in Express 4).
+   */
+  host: string;
+  /**
+   * Request protocol, usually http or https.
+   */
+  protocol: string;
+  /**
+   * Request headers.
+   */
+  headers: IncomingHttpHeaders;
+  /**
+   * Request remote address. This is the IPv4 or IPv6 address of the client.
+   */
+  remoteAddress?: string;
+  /**
+   * Logged username the request, usually after token verification.
+   */
+  username?: string;
+  /**
+   * Request bypass cache.
+   */
+  byPassCache?: boolean;
+};
+
+export function getPublicUrl(url_prefix: string = '', requestOptions: RequestOptions): string {
   if (validateURL(process.env.VERDACCIO_PUBLIC_URL as string)) {
     const envURL = new URL(wrapPrefix(url_prefix), process.env.VERDACCIO_PUBLIC_URL as string).href;
     debug('public url by env %o', envURL);
     return envURL;
-  } else if (req.get('host')) {
-    const host = req.get('host');
+  } else if (requestOptions.headers['host']) {
+    const host = requestOptions.headers['host'];
     if (!isHost(host)) {
       throw new Error('invalid host');
     }
-    const protoHeader = process.env.VERDACCIO_FORWARDED_PROTO ?? HEADERS.FORWARDED_PROTO;
-    const protocol = getWebProtocol(req.get(protoHeader), req.protocol);
+
+    // 'X-Forwarded-Proto' is the default header
+    const protoHeader: string =
+      process.env.VERDACCIO_FORWARDED_PROTO?.toLocaleLowerCase() ??
+      HEADERS.FORWARDED_PROTO.toLowerCase();
+    const forwardedProtocolHeaderValue = requestOptions.headers[protoHeader];
+
+    if (Array.isArray(forwardedProtocolHeaderValue)) {
+      // This really should never happen - only set-cookie is allowed to have
+      // multiple values.
+      throw new Error('invalid forwarded protocol header value. Reading header ' + protoHeader);
+    }
+
+    const protocol = getWebProtocol(forwardedProtocolHeaderValue, requestOptions.protocol);
     const combinedUrl = combineBaseUrl(protocol, host, url_prefix);
     debug('public url by request %o', combinedUrl);
     return combinedUrl;
@@ -110,3 +148,5 @@ export function getPublicUrl(url_prefix: string = '', req): string {
     return '/';
   }
 }
+
+export const isURL = validator.isURL;

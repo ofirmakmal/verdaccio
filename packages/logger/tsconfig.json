@@ -5,10 +5,12 @@
     "outDir": "./build"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"],
   "references": [
     {
-      "path": "../logger-prettify"
+      "path": "../core/core"
+    },
+    {
+      "path": "../core/types"
     }
   ]
 }

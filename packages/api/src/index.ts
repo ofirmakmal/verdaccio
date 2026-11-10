@@ -1,38 +1,44 @@
-import _ from 'lodash';
-import express, { Express } from 'express';
+import type { Router } from 'express';
+import express from 'express';
 
+import type { Auth } from '@verdaccio/auth';
 import {
+  WebUrlsNamespace,
+  PACKAGE_API_ENDPOINTS,
+  validatePackageVersionStatus,
+  antiLoop,
+  encodeScopePackage,
+  enforceGeneratedTokenMetadata,
+  makeURLrelative,
   match,
+  registerBodyParser,
   validateName,
   validatePackage,
-  encodeScopePackage,
-  antiLoop,
 } from '@verdaccio/middleware';
-import { IAuth } from '@verdaccio/auth';
-import { IStorageHandler } from '@verdaccio/store';
-import { Config } from '@verdaccio/types';
-import bodyParser from 'body-parser';
+import type { Storage } from '@verdaccio/store';
+import type { Config, Logger } from '@verdaccio/types';
 
-import whoami from './whoami';
-import ping from './ping';
-import user from './user';
+import { TfaStore } from '@verdaccio/auth';
+
 import distTags from './dist-tags';
-import publish from './publish';
-import search from './search';
 import pkg from './package';
-import stars from './stars';
+import packageVersionStatus from './package-version-status';
+import ping from './ping';
+import publish from './publish';
+import { assertTokenStoreSupport, requireOtp } from './require-otp';
+import search from './search';
+import stage from './stage';
+import user from './user';
+import login from './v1/login';
 import profile from './v1/profile';
-import token from './v1/token';
 import v1Search from './v1/search';
+import signatures from './v1/signatures';
+import token from './v1/token';
+import whoami from './whoami';
 
-export default function (
-  config: Config,
-  auth: IAuth,
-  storage: IStorageHandler
-): Express.Application {
+export default function (config: Config, auth: Auth, storage: Storage, logger: Logger): Router {
   /* eslint new-cap:off */
   const app = express.Router();
-  /* eslint new-cap:off */
 
   // validate all of these params as a package name
   // this might be too harsh, so ask if it causes trouble
@@ -43,34 +49,72 @@ export default function (
   app.param('revision', validateName);
   app.param('token', validateName);
 
-  // these can't be safely put into express url for some reason
-  // TODO: For some reason? what reason?
+  // Express route parameter names must be valid JavaScript identifiers, which means
+  // they cannot start with a hyphen (-) or contain special characters like dots (.)
   app.param('_rev', match(/^-rev$/));
   app.param('org_couchdb_user', match(/^org\.couchdb\.user:/));
-  app.param('anything', match(/.*/));
-  app.use(auth.apiJWTmiddleware());
-  app.use(bodyParser.json({ strict: false, limit: config.max_body_size || '10mb' }));
-  // @ts-ignore
+
+  // Body parser must be registered before JWT middleware which pauses/resumes the stream
+  registerBodyParser(app, config);
+
+  app.use(WebUrlsNamespace.endpoints, (_req, _res, next) => next('router'));
+
+  app.get(PACKAGE_API_ENDPOINTS.version_status, validatePackageVersionStatus);
+
+  // Avoid executing JWT twice when the parent app already registered the JWT middleware
+  const apiJwtMiddleware = auth.apiJWTmiddleware();
+  app.use((req, res, next) => {
+    const remoteUser = (req as any).remote_user ?? (res.locals as any).remote_user;
+    if (remoteUser) {
+      return next();
+    }
+    return apiJwtMiddleware(req, res, next);
+  });
+
+  // built once: without the flag nothing must reach the token store
+  let tfaStore: TfaStore | undefined;
+  if (config.flags?.tfa) {
+    // refuse to start rather than answer 503 on every write later
+    assertTokenStoreSupport(storage, logger);
+    tfaStore = new TfaStore(storage, config.secret, logger);
+  }
+  const otpForAuth = requireOtp({ tfaStore, scope: 'auth', logger });
+  // at login there is no authenticated user yet: the name is in the body
+  const otpForLogin = requireOtp({
+    tfaStore,
+    scope: 'auth',
+    logger,
+    getUsername: (req) => (typeof req.body?.name === 'string' ? req.body.name : undefined),
+  });
+  const otpForWrites = requireOtp({ tfaStore, scope: 'write', logger });
+
+  app.use(enforceGeneratedTokenMetadata(storage, logger));
   app.use(antiLoop(config));
+  app.use(makeURLrelative);
   // encode / in a scoped package name to be matched as a single parameter in routes
   app.use(encodeScopePackage);
   // for "npm whoami"
   whoami(app);
-  pkg(app, auth, storage, config);
-  profile(app, auth);
-  search(app, auth, storage);
-  user(app, auth, config);
-  distTags(app, auth, storage);
-  publish(app, auth, storage, config);
+  profile(app, auth, config, storage, logger, otpForAuth);
+  search(app, logger);
+  user(app, auth, config, logger, otpForLogin);
+  distTags(app, auth, storage, logger, otpForWrites);
+  publish(app, auth, storage, config, logger, otpForWrites);
   ping(app);
-  stars(app, storage);
-
-  if (config?.flags?.search === true) {
-    v1Search(app, auth, storage);
+  v1Search(app, auth, storage, config, logger);
+  token(app, auth, storage, config, logger, otpForAuth);
+  if (config.flags?.signatures) {
+    signatures(app, auth, storage, logger);
   }
-
-  if (config?.flags?.token === true) {
-    token(app, auth, storage, config);
+  // must stay before pkg(): its '/:package{/:version}' route would otherwise
+  // swallow GET /-/stage
+  if (config.flags?.stage) {
+    stage(app, auth, storage, config, logger, otpForWrites);
+  }
+  packageVersionStatus(app, auth, storage);
+  pkg(app, auth, storage, logger);
+  if (config.flags?.webLogin) {
+    login(app, auth, storage, config, logger);
   }
   return app;
 }

@@ -8,10 +8,10 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     {
-      "path": "../core/commons-api"
+      "path": "../core/core"
     },
     {
-      "path": "../utils"
+      "path": "../core/types"
     }
   ]
 }

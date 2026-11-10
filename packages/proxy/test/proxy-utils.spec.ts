@@ -1,4 +1,6 @@
-import assert from 'assert';
+import assert from 'node:assert';
+import { describe, test } from 'vitest';
+
 import { parseInterval } from '../src/proxy-utils';
 
 describe('Parse interval', () => {
@@ -6,7 +8,6 @@ describe('Parse interval', () => {
     test('parse ' + str, () => {
       if (res === null) {
         assert.throws(function () {
-          // eslint-disable-next-line no-console
           console.log(parseInterval(str));
         });
       } else {

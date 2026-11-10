@@ -17,10 +17,10 @@
       "path": "../config"
     },
     {
-      "path": "../core/commons-api"
+      "path": "../core/core"
     },
     {
-      "path": "../core/htpasswd"
+      "path": "../core/types"
     },
     {
       "path": "../hooks"
@@ -29,13 +29,13 @@
       "path": "../logger"
     },
     {
-      "path": "../mock"
-    },
-    {
       "path": "../node-api"
     },
     {
       "path": "../plugins/audit"
+    },
+    {
+      "path": "../plugins/htpasswd"
     },
     {
       "path": "../plugins/ui-theme"
@@ -44,7 +44,7 @@
       "path": "../store"
     },
     {
-      "path": "../utils"
+      "path": "../tools/helpers"
     }
   ]
 }

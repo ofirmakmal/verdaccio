@@ -1,35 +1,36 @@
-import { getServiceUnavailable } from '@verdaccio/commons-api';
-import {
-  Logger,
-  Callback,
-  Config,
-  IPluginStorage,
-  Token,
-  TokenFilter,
-  PluginOptions,
-} from '@verdaccio/types';
 import buildDebug from 'debug';
 
-import MemoryHandler, { DataHandler } from './memory-handler';
+import type { searchUtils } from '@verdaccio/core';
+import { pluginUtils } from '@verdaccio/core';
+import type { Logger, Token, TokenFilter } from '@verdaccio/types';
 
-export type ConfigMemory = Config & { limit?: number };
+import type { DataHandler } from './memory-handler';
+import MemoryHandler from './memory-handler';
+
+export type ConfigMemory = { limit?: number };
 export interface MemoryLocalStorage {
   secret: string;
   list: string[];
   files: DataHandler;
+  tokens: { [user: string]: Token[] };
 }
 
 const debug = buildDebug('verdaccio:plugin:storage:local-memory');
 
 const DEFAULT_LIMIT = 1000;
-class LocalMemory implements IPluginStorage<ConfigMemory> {
+
+class LocalMemory
+  extends pluginUtils.Plugin<ConfigMemory>
+  implements pluginUtils.Storage<ConfigMemory>
+{
   private path: string;
   private limit: number;
   public logger: Logger;
   private data: MemoryLocalStorage;
   public config: ConfigMemory;
 
-  public constructor(config: ConfigMemory, options: PluginOptions<ConfigMemory>) {
+  public constructor(config: ConfigMemory, options: pluginUtils.PluginOptions) {
+    super(config, options);
     this.config = config;
     this.limit = config.limit || DEFAULT_LIMIT;
     this.logger = options.logger;
@@ -53,55 +54,95 @@ class LocalMemory implements IPluginStorage<ConfigMemory> {
     });
   }
 
-  public add(name: string, cb: Callback): void {
-    const { list } = this.data;
+  async add(name: string): Promise<void> {
+    return new Promise((resolve, reject): void => {
+      const { list } = this.data;
 
-    if (list.length < this.limit) {
-      if (list.indexOf(name) === -1) {
-        list.push(name);
+      if (list.length < this.limit) {
+        if (list.indexOf(name) === -1) {
+          list.push(name);
+        }
+        resolve();
+      } else {
+        this.logger.info(
+          { limit: this.limit },
+          'Storage memory has reached limit of @{limit} packages'
+        );
+        reject(new Error(`Storage memory has reached limit of ${this.limit} packages`));
       }
-      cb(null);
-    } else {
-      this.logger.info(
-        { limit: this.limit },
-        'Storage memory has reached limit of @{limit} packages'
-      );
-      cb(new Error('Storage memory has reached limit of limit packages'));
+    });
+  }
+
+  public async search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]> {
+    const results: searchUtils.SearchItem[] = [];
+    const packagesOnStorage = this.filterByQuery(this.data.list, query);
+    debug('memory search: packages found %o', packagesOnStorage.length);
+    for (const name of packagesOnStorage) {
+      const pkg: searchUtils.SearchItemPkg = { name };
+      const isPrivate = this.data.list.includes(name);
+      const score = this.getScore(pkg);
+      results.push({
+        package: pkg,
+        verdaccioPrivate: isPrivate,
+        verdaccioPkgCached: !isPrivate,
+        score,
+      });
     }
+    return results;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public search(onPackage: Callback, onEnd: Callback, validateName: Function): void {
-    this.logger.warn('[verdaccio/memory]: search method not implemented, PR is welcome');
-    onEnd();
+  private filterByQuery(list: string[], query: searchUtils.SearchQuery): string[] {
+    const safeText = query.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(safeText, 'i');
+    return list.filter((name) => regex.test(name));
   }
 
-  public remove(name: string, cb: Callback): void {
-    const { list } = this.data;
-    const item = list.indexOf(name);
-
-    if (item !== -1) {
-      list.splice(item, 1);
-    }
-
-    cb(null);
+  private getScore(_pkg: searchUtils.SearchItemPkg): searchUtils.Score {
+    return {
+      final: 1,
+      detail: {
+        maintenance: 0,
+        popularity: 1,
+        quality: 1,
+      },
+    };
   }
 
-  public get(cb: Callback): void {
+  async remove(name: string): Promise<void> {
+    return new Promise((resolve): void => {
+      const { list } = this.data;
+      const item = list.indexOf(name);
+
+      if (item !== -1) {
+        list.splice(item, 1);
+      }
+
+      return resolve();
+    });
+  }
+
+  async get(): Promise<any> {
     debug('data list length %o', this.data?.list?.length);
-    cb(null, this.data?.list);
+    return Promise.resolve(this.data?.list);
   }
 
   public getPackageStorage(packageInfo: string): MemoryHandler {
+    // Ensure the package is in the list
+    if (!this.data.list.includes(packageInfo)) {
+      this.data.list.push(packageInfo);
+    }
     return new MemoryHandler(packageInfo, this.data.files, this.logger);
   }
 
   private _createEmtpyDatabase(): MemoryLocalStorage {
     const list: string[] = [];
     const files = {};
+    // keyed by username: names like `constructor` or `__proto__` must not hit the prototype
+    const tokens = Object.create(null);
     const emptyDatabase = {
       list,
       files,
+      tokens,
       secret: '',
     };
 
@@ -109,24 +150,46 @@ class LocalMemory implements IPluginStorage<ConfigMemory> {
   }
 
   public saveToken(token: Token): Promise<void> {
-    this.logger.warn('[verdaccio/memory][saveToken] save token has not been implemented yet');
+    return new Promise((resolve): void => {
+      const { tokens } = this.data;
 
-    return Promise.reject(getServiceUnavailable('method not implemented'));
+      if (!tokens[token.user]) {
+        tokens[token.user] = [token];
+      } else {
+        tokens[token.user].push(token);
+      }
+
+      debug('token saved for user %o', token.user);
+      resolve();
+    });
   }
 
   public deleteToken(user: string, tokenKey: string): Promise<void> {
-    this.logger.warn(
-      { tokenKey, user },
-      '[verdaccio/memory][deleteToken] delete token has not been implemented yet @{user}'
-    );
+    return new Promise((resolve, reject): void => {
+      const { tokens } = this.data;
+      const userTokens = tokens[user];
 
-    return Promise.reject(getServiceUnavailable('method not implemented'));
+      if (!userTokens) {
+        reject(new Error('user not found'));
+        return;
+      }
+
+      const remainingTokens = userTokens.filter((token) => token.key !== tokenKey);
+      tokens[user] = remainingTokens;
+
+      debug('removed token key %o for user %o', tokenKey, user);
+      resolve();
+    });
   }
 
   public readTokens(filter: TokenFilter): Promise<Token[]> {
-    this.logger.warn('[verdaccio/memory][readTokens] read tokens has not been implemented yet ');
+    return new Promise((resolve): void => {
+      const { tokens } = this.data;
+      const userTokens = tokens[filter.user] || [];
 
-    return Promise.reject(getServiceUnavailable('method not implemented'));
+      debug('read tokens for user %o: %o tokens', filter.user, userTokens.length);
+      resolve(userTokens);
+    });
   }
 }
 

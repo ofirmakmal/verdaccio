@@ -2,26 +2,22 @@
 verdaccio-*.tgz
 .DS_Store
 build/
+dist/
 .eslintcache
-./dist
+node_modules
 
-### Test
-
+### database
 .verdaccio-db.json
 .sinopia-db.json
 
-###
+### test
 test-storage*
 .verdaccio_test_env
-node_modules
-package-lock.json
-yarn-error.log
-yarn.lock
-
 
 # docker examples
-docker-examples/v5/reverse_proxy/nginx/relative_path/storage/*
-docker-examples/v5/**/storage/*
+docker-examples/v6/**/storage/*
+docker-examples/v7/**/storage/*
+docker-examples/v8/**/storage/*
 
 # jest
 reports/
@@ -32,16 +28,42 @@ coverage/
 
 # Compiled script
 packages/partials
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 
 ## bundle files
 packages/standalone/dist/
+
 ## ui
 packages/plugins/ui-theme/static
+packages/ui-components/src/components/Readme/github-markdown.css
+/packages/ui-components/src/i18n/download_translations/
 
-# website
-website/public
-website/.cache
+## ui tests
+!/packages/ui-components/vitest/api/*.tgz
 
 # CI Pnpm cache
 .pnpm-store/
+
+
+# cypress
+cypress/videos/**/*
+cypress/screenshots/**/*
+cypress/downloads/**/*
+e2e/ui/cypress/videos/**/*
+e2e/ui/cypress/screenshots/**/*
+e2e/ui/cypress/downloads/**/*
+
+# storybook
+packages/ui-components/storybook-static
+
+# Claude Code's local state, except the tracked skills symlink. Git cannot
+# re-include a path inside an excluded directory, so the root .claude
+# directory is un-excluded first and its contents excluded again.
+.claude
+!/.claude/
+/.claude/*
+!/.claude/skills
+
+# devcontainer
+/.devcontainer
+

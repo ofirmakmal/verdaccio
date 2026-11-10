@@ -1,55 +1,84 @@
 # Docker + Kubernetes Examples
 
-This folder aims to create a collection of Docker and Kubernetes examples.
+A collection of runnable Docker and Kubernetes examples for Verdaccio. Each
+example is self-contained — `cd` into its folder and follow its `README.md`.
 
-For more information about the **Helm** Chart, please check it [owns repo](https://github.com/verdaccio/charts).
+> Examples are demonstrative; contributions for other use cases are welcome.
 
-> Feel free to contribute whether you consider any use case is relevant for the public in general.
+## Versions
 
-## Examples
+Examples are grouped by the major Verdaccio version they target. Pick the set
+that matches the image you run.
 
-The following examples aim to be demonstrative and can be either improved or updated.
+| Set                         | Verdaccio image                      | Notes                                             |
+| --------------------------- | ------------------------------------ | ------------------------------------------------- |
+| [v9 examples](v9/README.md) | `verdaccio/verdaccio:nightly-master` | Experimental line, where new features land first. |
+| [v7 examples](v7/README.md) | `verdaccio/verdaccio:7.x-next`       | Next major.                                       |
+| [v6 examples](v6/README.md) | `verdaccio/verdaccio:6`              | Current stable.                                   |
 
-### Verdaccio 5
+## What you can find
 
-- [Docker + Nginx + Verdaccio](v5/reverse_proxy/nginx/README.md)
+### v9 ([details](v9/README.md))
 
-### Verdaccio 4
+- **[Staged publishing and two-factor](v9/staged-publishing-and-2fa/README.md)** —
+  the `stage` and `tfa` feature flags turned on, with a package rule that lets
+  one group propose a release and another approve it.
 
-#### Proxies
+### v7 ([details](v7/README.md))
 
-- [Docker + Apache + Verdaccio](v4/apache-verdaccio/README.md)
-- [Docker + Nginx + Verdaccio](v4/reverse_proxy/nginx/README.md)
-- [Docker + https-portal Example](v4/https-portal-example/README.md)
+- **[Local storage volume](v7/docker-local-storage-volume/README.md)** — minimal
+  setup that persists `storage/` and `conf/` via bind mounts.
+- **Reverse proxy**
+  - **[Nginx](v7/reverse_proxy/nginx/README.md)** — root path (`/`) and relative
+    path (`/verdaccio/`), including a self-signed **SSL + HTTP/2** variant.
+  - **[Apache (httpd:2.4)](v7/reverse_proxy/apache/README.md)** — `mod_proxy`
+    reverse proxy.
+  - **[HTTPS Portal](v7/reverse_proxy/https-portal/README.md)** — automated
+    HTTPS (Let's Encrypt / self-signed) via `https-portal`.
+- **Plugins** (legacy plugin API, still supported on v7)
+  - **[Install a published plugin](v7/plugins/docker-build-install-plugin/README.md)** —
+    `verdaccio-auth-memory@next-7` installed in a builder stage.
+  - **[Load a local plugin](v7/plugins/docker-local-plugin/README.md)** — a
+    zero-dependency dummy auth plugin that always grants access.
+- **Kubernetes**
+  - **[Helm](v7/kubernetes/helm/README.md)** — deploy with the official
+    [Verdaccio Helm chart](https://github.com/verdaccio/charts).
+- **Amazon S3** — not bundled; use the dedicated
+  [`verdaccio/verdaccio-aws-s3-storage`](https://github.com/verdaccio/verdaccio-aws-s3-storage)
+  plugin.
 
-#### Plugins
+### v6 ([details](v6/README.md))
 
-- [Docker + Uplinks Multi Registry](v4/multi-registry-uplink/README.md)
-- [Docker + Local Storage](v4/docker-local-storage-volume/readme.md)
-- [Docker + External Plugins](v4/docker-plugin-external/README.md)
+The same local-storage, nginx, apache, https-portal and plugin examples as v7,
+plus:
 
-#### Auth
+- **[Amazon S3 (LocalStack)](v6/amazon-s3-docker-example/README.md)** — S3
+  storage backed by a local LocalStack.
+- **[GitHub OAuth UI](v6/verdaccio-github-oauth-ui/README.md)** — login via the
+  `verdaccio-github-oauth-ui` plugin.
 
-- [Docker + LDAP (OpenLDAP) Server + Verdaccio 4](v4/ldap-verdaccio/readme.md) by **@kopax**
-- [Docker + Gitlab](gitlab-verdaccio/README.md)
-- [Docker + Active Directory](https://github.com/Mateus-Oli/verdaccio-ad-docker)
+## Reverse proxy notes
 
-#### Storage
+The proxy examples set the headers Verdaccio needs to resolve the public URL —
+`Host` and `X-Forwarded-Proto` — and raise the upload limit
+(`client_max_body_size 0;` for nginx, `LimitRequestBody 0` for Apache) so
+`npm publish` of large tarballs does not fail with HTTP `413`. See the
+[reverse proxy documentation](https://verdaccio.org/docs/reverse-proxy) for the
+full reference.
 
-- [Docker + AWS S3 Plugin(localstack) + Verdaccio 4](v4/amazon-s3-docker-example/v4/README.md)
-- [Docker + Minio](https://github.com/barolab/verdaccio-minio/tree/master/example)
+## Default credentials
 
-### Kubernetes
+The examples that ship an `htpasswd` file use:
 
-- Kubernetes (minikube) + Verdaccio (Basic Configuration)
-- Kubernetes Helm and Verdaccio Chart (Basic Tutorial)
+- **Username:** `dummyuser`
+- **Password:** `dummyuser`
 
-### External
+## External resources
 
-- [
-  Verdaccio examples for Google Cloud and K8s setups. https://github.com/papezt/verdaccio-examples](https://github.com/papezt/verdaccio-examples)
+- **Helm chart:** <https://github.com/verdaccio/charts>
+- [Verdaccio examples for Google Cloud and K8s setups](https://github.com/papezt/verdaccio-examples)
 
 ### Articles
 
-- [https://medium.com/@tompape/kubernetes-private-npm-registry-fb5f450fa611](https://medium.com/@tompape/kubernetes-private-npm-registry-fb5f450fa611)
+- [Kubernetes private npm registry](https://medium.com/@tompape/kubernetes-private-npm-registry-fb5f450fa611)
 - [Déployer Verdaccio sur rancher avec un helm](https://tommygingras.com/deployer-verdaccio-sur-rancher-avec-un-helm/)

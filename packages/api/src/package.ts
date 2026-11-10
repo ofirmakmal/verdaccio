@@ -1,119 +1,113 @@
-import _ from 'lodash';
-import { Router } from 'express';
 import buildDebug from 'debug';
+import type { Router } from 'express';
 
-import { allow } from '@verdaccio/middleware';
-import { getVersion, ErrorCode } from '@verdaccio/utils';
-import { HEADERS, DIST_TAGS, API_ERROR } from '@verdaccio/commons-api';
-import { Config, Package } from '@verdaccio/types';
-import { IAuth } from '@verdaccio/auth';
-import { IStorageHandler } from '@verdaccio/store';
-import { convertDistRemoteToLocalTarballUrls } from '@verdaccio/tarball';
-import { $RequestExtend, $ResponseExtend, $NextFunctionVer } from '../types/custom';
+import type { Auth } from '@verdaccio/auth';
+import { HEADERS, HEADER_TYPE, reqUtils, stringUtils } from '@verdaccio/core';
+import { PACKAGE_API_ENDPOINTS, allow, getRequestOptions } from '@verdaccio/middleware';
+import { Storage } from '@verdaccio/store';
+import type { Logger } from '@verdaccio/types';
+
+import type { $NextFunctionVer, $RequestExtend, $ResponseExtend } from '../types/custom';
 
 const debug = buildDebug('verdaccio:api:package');
 
-const downloadStream = (
-  packageName: string,
-  filename: string,
-  storage: any,
-  req: $RequestExtend,
-  res: $ResponseExtend
-): void => {
-  const stream = storage.getTarball(packageName, filename);
-
-  stream.on('content-length', function (content): void {
-    res.header('Content-Length', content);
+export default function (route: Router, auth: Auth, storage: Storage, logger: Logger): void {
+  const can = allow(auth, {
+    beforeAll: (a, b) => logger.trace(a, b),
+    afterAll: (a, b) => logger.trace(a, b),
   });
-
-  stream.on('error', function (err): void {
-    return res.locals.report_error(err);
-  });
-
-  res.header(HEADERS.CONTENT_TYPE, HEADERS.OCTET_STREAM);
-  stream.pipe(res);
-};
-
-export default function (
-  route: Router,
-  auth: IAuth,
-  storage: IStorageHandler,
-  config: Config
-): void {
-  const can = allow(auth);
-  // TODO: anonymous user?
   route.get(
-    '/:package/:version?',
+    PACKAGE_API_ENDPOINTS.get_package_by_version,
     can('access'),
-    function (req: $RequestExtend, res: $ResponseExtend, next: $NextFunctionVer): void {
-      debug('init package by version');
-      const name = req.params.package;
-      const getPackageMetaCallback = function (err, metadata: Package): void {
-        if (err) {
-          debug('error on fetch metadata for %o with error %o', name, err.message);
-          return next(err);
-        }
-        debug('convert dist remote to local with prefix %o', config?.url_prefix);
-        metadata = convertDistRemoteToLocalTarballUrls(metadata, req, config?.url_prefix);
+    async function (
+      req: $RequestExtend,
+      _res: $ResponseExtend,
+      next: $NextFunctionVer
+    ): Promise<void> {
+      const name = reqUtils.paramToString(req.params.package);
+      const version = reqUtils.paramToString(req.params.version) || undefined;
+      debug('get package by version: %o %o', name, version);
+      const abbreviated =
+        stringUtils.getByQualityPriorityValue(req.get('Accept')) === Storage.ABBREVIATED_HEADER;
+      debug('abbreviated: %o', abbreviated);
 
-        let queryVersion = req.params.version;
-        debug('query by param version: %o', queryVersion);
-        if (_.isNil(queryVersion)) {
-          debug('param %o version found', queryVersion);
-          return next(metadata);
-        }
+      const requestOptions = getRequestOptions(req);
 
-        let version = getVersion(metadata, queryVersion);
-        debug('query by latest version %o and result %o', queryVersion, version);
-        if (_.isNil(version) === false) {
-          debug('latest version found %o', version);
-          return next(version);
-        }
-
-        if (_.isNil(metadata[DIST_TAGS]) === false) {
-          if (_.isNil(metadata[DIST_TAGS][queryVersion]) === false) {
-            queryVersion = metadata[DIST_TAGS][queryVersion];
-            debug('dist-tag version found %o', queryVersion);
-            version = getVersion(metadata, queryVersion);
-            if (_.isNil(version) === false) {
-              debug('dist-tag found %o', version);
-              return next(version);
-            }
-          }
+      try {
+        const manifest = await storage.getPackageByOptions({
+          name,
+          uplinksLook: true,
+          abbreviated,
+          version,
+          requestOptions,
+        });
+        if (abbreviated) {
+          debug('abbreviated response');
+          _res.setHeader(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON_INSTALL_CHARSET);
         } else {
-          debug('dist tag not detected');
+          debug('full response');
+          _res.setHeader(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON);
         }
 
-        debug('package version not found %o', queryVersion);
-        return next(ErrorCode.getNotFound(`${API_ERROR.VERSION_NOT_EXIST}: ${queryVersion}`));
-      };
-
-      debug('get package name %o', name);
-      debug('uplinks look up enabled');
-      storage.getPackage({
-        name,
-        uplinksLook: true,
-        req,
-        callback: getPackageMetaCallback,
-      });
+        next(manifest);
+      } catch (err) {
+        next(err);
+      }
     }
   );
 
   route.get(
-    '/:scopedPackage/-/:scope/:filename',
+    PACKAGE_API_ENDPOINTS.get_package_tarball,
     can('access'),
-    function (req: $RequestExtend, res: $ResponseExtend): void {
-      const { scopedPackage, filename } = req.params;
+    async function (req: $RequestExtend, res: $ResponseExtend): Promise<void> {
+      const pkgName = reqUtils.paramToString(req.params.package);
+      const filename = reqUtils.paramToString(req.params.filename);
+      const abort = new AbortController();
+      try {
+        debug('downloading tarball %o', filename);
+        const stream = (await storage.getTarball(pkgName, filename, {
+          signal: abort.signal,
+          // TODO: review why this param
+          // enableRemote: true,
+        })) as any;
 
-      downloadStream(scopedPackage, filename, storage, req, res);
-    }
-  );
+        stream.on('content-length', (size) => {
+          debug('tarball size %o', size);
+          // the size event races against the first data chunk; setting a
+          // header after they are flushed would throw and kill the process
+          if (!res.headersSent) {
+            res.header(HEADER_TYPE.CONTENT_LENGTH, size);
+          }
+        });
 
-  route.get(
-    '/:package/-/:filename',
-    can('access'),
-    function (req: $RequestExtend, res: $ResponseExtend): void {
-      downloadStream(req.params.package, req.params.filename, storage, req, res);
+        stream.once('error', (err) => {
+          debug('error on download tarball %o', err);
+          if (res.headersSent) {
+            // The 200 + headers are already on the wire (streaming had started),
+            // so an error status can no longer be sent; destroying the response
+            // is the only way to signal the failure — otherwise `pipe` just
+            // unpipes and the client waits forever on a half-sent body.
+            debug('headers already sent, destroying response for %o', req.url);
+            res.destroy(err);
+            return;
+          }
+          // The octet-stream header was set optimistically for the download;
+          // the error body is JSON (matching registry.npmjs.org), so let the
+          // error formatter pick the content type.
+          res.removeHeader(HEADERS.CONTENT_TYPE);
+          res.locals.report_error(err);
+        });
+
+        req.on('abort', () => {
+          debug('request aborted for %o', req.url);
+          abort.abort();
+        });
+
+        res.header(HEADERS.CONTENT_TYPE, HEADERS.OCTET_STREAM);
+        stream.pipe(res);
+      } catch (err: any) {
+        res.locals.report_error(err);
+      }
     }
   );
 }

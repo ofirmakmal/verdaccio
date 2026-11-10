@@ -1,5 +1,4 @@
-export { Auth, IAuth, TokenEncryption, IBasicAuth } from './auth';
+export { Auth } from './auth';
+export * from './tfa-store';
 export * from './utils';
-export * from './legacy-token';
-export * from './jwt-token';
-export * from './token';
+export * from './types';

@@ -1,19 +1,19 @@
 /* eslint-disable */
-import _, { assign, isFunction } from 'lodash';
-import http from 'http';
-import https from 'https';
-import constants from 'constants';
 import buildDebug from 'debug';
-import fs from 'fs';
-import url from 'url';
+import { assign } from 'lodash-es';
+import constants from 'node:constants';
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import url from 'node:url';
 
-import { findConfigFile, parseConfigFile } from '@verdaccio/config';
-import { API_ERROR } from '@verdaccio/commons-api';
-import { ConfigRuntime, HttpsConfKeyCert, HttpsConfPfx } from '@verdaccio/types';
-import { setup } from '@verdaccio/logger';
-import server from '@verdaccio/server';
-import { getListListenAddresses } from './cli-utils';
+import { getConfigParsed, getListenAddress } from '@verdaccio/config';
+import { logger, setup } from '@verdaccio/logger';
+import { ConfigYaml, HttpsConfKeyCert, HttpsConfPfx } from '@verdaccio/types';
+
 import { displayExperimentsInfoBox } from './experiments';
+
+export type ServerFactory = (config: ConfigYaml) => Promise<any>;
 
 const debug = buildDebug('verdaccio:node-api');
 
@@ -29,7 +29,7 @@ function unlinkAddressPath(addr) {
  * @param addr
  * @param app
  */
-export function createServerFactory(config: ConfigRuntime, addr, app) {
+export function createServerFactory(config: ConfigYaml, addr, app) {
   let serverFactory;
   if (addr.proto === 'https') {
     debug('https enabled');
@@ -67,7 +67,7 @@ export function createServerFactory(config: ConfigRuntime, addr, app) {
       // TODO: enable http2 as feature
       // if (config.server.http2) <-- check if force http2
       serverFactory = https.createServer(httpsOptions, app);
-    } catch (err) {
+    } catch (err: any) {
       throw new Error(`cannot create https server: ${err.message}`);
     }
   } else {
@@ -75,6 +75,8 @@ export function createServerFactory(config: ConfigRuntime, addr, app) {
     debug('http enabled');
     serverFactory = http.createServer(app);
   }
+
+  debug('server created');
 
   if (
     config.server &&
@@ -85,36 +87,38 @@ export function createServerFactory(config: ConfigRuntime, addr, app) {
     // library definition for node is not up to date (doesn't contain recent 8.0 changes)
     serverFactory.keepAliveTimeout = config.server.keepAliveTimeout * 1000;
   }
-  // FIXE: I could not find the reason of this code.
+  // Remove stale Unix socket file from a previous run to avoid EADDRINUSE
   unlinkAddressPath(addr);
 
   return serverFactory;
 }
 
 /**
- * Start the server on the port defined
+ * Start the server on the port defined (or the port defined in the config file)
  * @param config
  * @param port
  * @param version
  * @param pkgName
  */
 export async function initServer(
-  config: ConfigRuntime,
+  config: ConfigYaml,
   port: string | void,
   version: string,
-  pkgName: string
+  pkgName: string,
+  serverFactory: ServerFactory
 ): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    // FIXME: get only the first match, the multiple address will be removed
-    const [addr] = getListListenAddresses(port, config.listen);
-    const logger = setup((config as ConfigRuntime).logs);
-    displayExperimentsInfoBox(config.flags);
-    const app = await server(config);
-    const serverFactory = createServerFactory(config, addr, app);
-    serverFactory
+  const logger = await setup(config?.log as any);
+  const addr = getListenAddress(port ?? config?.listen, logger);
+  displayExperimentsInfoBox(config.flags);
+
+  const app = await serverFactory(config);
+  const httpServer = createServerFactory(config, addr, app);
+
+  return new Promise<void>((resolve, reject) => {
+    httpServer
       .listen(addr.port || addr.path, addr.host, (): void => {
         // send a message for test
-        if (isFunction(process.send)) {
+        if (typeof process.send === 'function') {
           process.send({
             verdaccio_started: true,
           });
@@ -132,55 +136,50 @@ export async function initServer(
                 pathname: '/',
               })
         }`;
-        console.log(`http address ${addressServer}`);
-        console.log(`${pkgName} / ${version}`);
+        logger.info({ addressServer }, 'http address: @{addressServer}');
+        logger.info({ version }, 'version: @{version}');
         resolve();
       })
       .on('error', function (err): void {
         reject(err);
         process.exitCode = 1;
       });
-
     function handleShutdownGracefully() {
-      logger.fatal('received shutdown signal - closing server gracefully...');
-      serverFactory.close(() => {
+      logger.info('received shutdown signal - closing server gracefully...');
+      httpServer.close(() => {
         logger.info('server closed.');
         process.exit(0);
       });
     }
 
-    process.on('SIGINT', handleShutdownGracefully);
-    process.on('SIGTERM', handleShutdownGracefully);
-    process.on('SIGHUP', handleShutdownGracefully);
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      // Use once() so that receiving double signals exit the app.
+      process.once(signal, handleShutdownGracefully);
+    }
   });
 }
 
 /**
  * Exposes a server factory to be instantiated programmatically.
  *
+    ```ts
     const app = await runServer(); // default configuration
     const app = await runServer('./config/config.yaml');
     const app = await runServer({ configuration });
     app.listen(4000, (event) => {
     // do something
     });
+    ```
  * @param config
  */
-export async function runServer(config?: string | ConfigRuntime): Promise<any> {
-  let configurationParsed: ConfigRuntime;
-  if (config === undefined || typeof config === 'string') {
-    const configPathLocation = findConfigFile(config);
-    configurationParsed = parseConfigFile(configPathLocation);
-  } else if (_.isObject(config)) {
-    configurationParsed = config;
-  } else {
-    throw new Error(API_ERROR.CONFIG_BAD_FORMAT);
-  }
-
-  setup(configurationParsed.logs);
+export async function runServer(
+  config: string | ConfigYaml | undefined,
+  serverFactory: ServerFactory
+): Promise<any> {
+  const configurationParsed = getConfigParsed(config);
+  await setup(configurationParsed.log as any);
   displayExperimentsInfoBox(configurationParsed.flags);
-  // FIXME: get only the first match, the multiple address will be removed
-  const [addr] = getListListenAddresses(undefined, configurationParsed.listen);
-  const app = await server(configurationParsed);
+  const addr = getListenAddress(configurationParsed.listen, logger);
+  const app = await serverFactory(configurationParsed);
   return createServerFactory(configurationParsed, addr, app);
 }

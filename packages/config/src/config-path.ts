@@ -1,55 +1,71 @@
-import fs from 'fs';
-import path from 'path';
-import Path from 'path';
-import _ from 'lodash';
-import mkdirp from 'mkdirp';
 import buildDebug from 'debug';
+import { find } from 'lodash-es';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { CHARACTER_ENCODING } from '@verdaccio/commons-api';
-import { folderExists, fileExists } from './config-utils';
+import { fileExists, folderExists } from './config-utils';
 
 const CONFIG_FILE = 'config.yaml';
 const XDG = 'xdg';
-const WIN = 'win';
-const WIN32 = 'win32';
-// eslint-disable-next-line
+
 const pkgJSON = {
   name: 'verdaccio',
 };
 
 export type SetupDirectory = {
   path: string;
-  type: string;
+  type: 'xdg' | 'win' | 'win32' | 'def' | 'old';
 };
 
-const debug = buildDebug('verdaccio:config');
+const debug = buildDebug('verdaccio:config:config-path');
 
 /**
  * Find and get the first config file that match.
  * @return {String} the config file path
  */
-function findConfigFile(configPath: string | undefined): string {
+export function findConfigFile(configPath?: string): string {
+  debug('searching for config file %o', configPath);
   if (typeof configPath !== 'undefined') {
-    return Path.resolve(configPath);
+    const configLocation = path.resolve(configPath);
+    debug('custom location %s', configLocation);
+    return configLocation;
   }
 
   const configPaths: SetupDirectory[] = getConfigPaths();
-
-  if (_.isEmpty(configPaths)) {
+  debug('%o posible locations found', configPaths.length);
+  if (configPaths.length === 0) {
+    debug('no configuration files can be processed');
+    // this should never happens
     throw new Error('no configuration files can be processed');
   }
 
-  const primaryConf: any = _.find(configPaths, (configLocation: any) =>
+  // find the first location that already exist
+  const primaryConf: SetupDirectory | void = find(configPaths, (configLocation: SetupDirectory) =>
     fileExists(configLocation.path)
   );
-  if (_.isNil(primaryConf) === false) {
+
+  if (typeof primaryConf !== 'undefined') {
+    debug('at least one primary location detected at %s', primaryConf?.path);
     return primaryConf.path;
   }
-
-  return createConfigFile(_.head(configPaths)).path;
+  debug('no previous location found, creating a new one');
+  debug('generating the first match path location  %s', configPaths[0].path);
+  return createConfigFile(configPaths[0]).path;
 }
 
-function createConfigFile(configLocation: any): SetupDirectory {
+/**
+ * Like {@link findConfigFile}, but side-effect free: returns the first existing
+ * config file location, or undefined when none exists (nothing is created).
+ */
+export function findExistingConfigFile(): string | undefined {
+  const primaryConf: SetupDirectory | void = find(getConfigPaths(), (configLocation) =>
+    fileExists(configLocation.path)
+  );
+  return primaryConf?.path;
+}
+
+function createConfigFile(configLocation: SetupDirectory): SetupDirectory {
   createConfigFolder(configLocation);
 
   const defaultConfig = updateStorageLinks(configLocation, readDefaultConfig());
@@ -59,86 +75,143 @@ function createConfigFile(configLocation: any): SetupDirectory {
   return configLocation;
 }
 
-export function readDefaultConfig(): Buffer {
-  const pathDefaultConf: string = path.resolve(__dirname, 'conf/default.yaml');
+export function readDefaultConfig(): string {
+  const currentDir = import.meta.dirname;
+  const pathDefaultConf: string = path.resolve(currentDir, 'conf/default.yaml');
+  try {
+    debug('the path of default config used from %s', pathDefaultConf);
+    fs.accessSync(pathDefaultConf, fs.constants.R_OK);
+    debug('configuration file has enough permissions for reading');
+  } catch {
+    debug('configuration file does not have enough permissions for reading');
+    throw new TypeError('configuration file does not have enough permissions for reading');
+  }
 
-  // @ts-ignore
-  return fs.readFileSync(pathDefaultConf, CHARACTER_ENCODING.UTF8);
+  return fs.readFileSync(pathDefaultConf, 'utf8');
 }
 
-function createConfigFolder(configLocation): void {
-  mkdirp.sync(Path.dirname(configLocation.path));
-  debug(`Creating default config file in %o`, configLocation?.path);
+function createConfigFolder(configLocation: SetupDirectory): void {
+  const folder = path.dirname(configLocation.path);
+  debug(`creating default config file folder at %o`, folder);
+  fs.mkdirSync(folder, { recursive: true });
+  debug(`folder %o created`, folder);
 }
 
-function updateStorageLinks(configLocation, defaultConfig): string {
+/**
+ * Update the storage links to the new location if it is necessary.
+ * @param configLocation
+ * @param defaultConfig
+ * @returns
+ */
+function updateStorageLinks(configLocation: SetupDirectory, defaultConfig: string): string {
+  debug('checking storage links for %s and type %s', configLocation.path, configLocation.type);
   if (configLocation.type !== XDG) {
+    debug(`skip storage override for %s`, configLocation.type);
     return defaultConfig;
   }
 
   // $XDG_DATA_HOME defines the base directory relative to which user specific data
   // files should be stored, If $XDG_DATA_HOME is either not set or empty, a default
   // equal to $HOME/.local/share should be used.
-  // $FlowFixMe
   let dataDir =
-    process.env.XDG_DATA_HOME || Path.join(process.env.HOME as string, '.local', 'share');
-  if (folderExists(dataDir)) {
-    dataDir = Path.resolve(Path.join(dataDir, pkgJSON.name, 'storage'));
+    process.env.XDG_DATA_HOME ||
+    (process.env.HOME && path.join(process.env.HOME, '.local', 'share'));
+  if (dataDir && folderExists(dataDir)) {
+    debug(`previous storage located`);
+    debug(`update storage links to %s`, dataDir);
+    dataDir = path.resolve(path.join(dataDir, pkgJSON.name, 'storage'));
     return defaultConfig.replace(/^storage: .\/storage$/m, `storage: ${dataDir}`);
   }
+  debug(`could not find a previous storage location, skip override`);
   return defaultConfig;
 }
 
+/**
+ * Return a list of configuration locations by platform.
+ * @returns
+ */
 function getConfigPaths(): SetupDirectory[] {
-  const listPaths: SetupDirectory[] = [
+  const listPaths: (SetupDirectory | void)[] = [
     getXDGDirectory(),
     getWindowsDirectory(),
     getRelativeDefaultDirectory(),
     getOldDirectory(),
-  ].reduce(function (acc, currentValue: any): SetupDirectory[] {
-    if (_.isUndefined(currentValue) === false) {
+  ];
+
+  return listPaths.reduce(function (acc, currentValue: SetupDirectory | void): SetupDirectory[] {
+    if (typeof currentValue !== 'undefined') {
+      debug(
+        'posible directory path generated %s for type %s',
+        currentValue?.path,
+        currentValue.type
+      );
       acc.push(currentValue);
     }
     return acc;
   }, [] as SetupDirectory[]);
-
-  return listPaths;
 }
 
+/**
+ * Get XDG_CONFIG_HOME or HOME location (usually unix)
+ *
+ * The XDG_CONFIG_HOME environment variable is also part of the XDG Base Directory Specification,
+ * which aims to standardize the locations where applications store configuration files and other
+ * user-specific data on Unix-like operating systems.
+ *
+ * https://specifications.freedesktop.org/basedir-spec/latest/
+ * @returns
+ */
 const getXDGDirectory = (): SetupDirectory | void => {
-  const XDGConfig = getXDGHome() || (process.env.HOME && Path.join(process.env.HOME, '.config'));
-
-  if (XDGConfig && folderExists(XDGConfig)) {
+  const xDGConfigPath =
+    process.env.XDG_CONFIG_HOME || (process.env.HOME && path.join(process.env.HOME, '.config'));
+  debug('XDGConfig folder path %s', xDGConfigPath);
+  if (xDGConfigPath && folderExists(xDGConfigPath)) {
+    debug('XDGConfig folder path %s', xDGConfigPath);
     return {
-      path: Path.join(XDGConfig, pkgJSON.name, CONFIG_FILE),
+      path: path.join(xDGConfigPath, pkgJSON.name, CONFIG_FILE),
       type: XDG,
     };
   }
 };
 
-const getXDGHome = (): string | void => process.env.XDG_CONFIG_HOME;
-
+/**
+ * Detect windows location, APPDATA
+ * usually something like C:\User\<Build User>\AppData\Local
+ * @returns
+ */
 const getWindowsDirectory = (): SetupDirectory | void => {
-  if (process.platform === WIN32 && process.env.APPDATA && folderExists(process.env.APPDATA)) {
+  if (os.platform() === 'win32' && process.env.APPDATA && folderExists(process.env.APPDATA)) {
+    debug('windows appdata folder path %s', process.env.APPDATA);
     return {
-      path: Path.resolve(Path.join(process.env.APPDATA, pkgJSON.name, CONFIG_FILE)),
-      type: WIN,
+      path: path.resolve(path.join(process.env.APPDATA, pkgJSON.name, CONFIG_FILE)),
+      type: 'win',
     };
   }
 };
 
+/**
+ * Return relative directory, this is the default.
+ * It will cretate config in your {currentLocation/verdaccio/config.yaml}
+ * @returns
+ */
 const getRelativeDefaultDirectory = (): SetupDirectory => {
+  const relativePath = path.resolve(path.join('.', pkgJSON.name, CONFIG_FILE));
+  debug('relative folder path %s', relativePath);
   return {
-    path: Path.resolve(Path.join('.', pkgJSON.name, CONFIG_FILE)),
+    path: relativePath,
     type: 'def',
   };
 };
 
+/**
+ * This should never happens, consider it DEPRECATED
+ * @returns
+ */
 const getOldDirectory = (): SetupDirectory => {
+  const oldPath = path.resolve(path.join('.', CONFIG_FILE));
+  debug('old folder path %s', oldPath);
   return {
-    path: Path.resolve(Path.join('.', CONFIG_FILE)),
+    path: oldPath,
     type: 'old',
   };
 };
-
-export { findConfigFile };

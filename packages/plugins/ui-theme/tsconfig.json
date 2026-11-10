@@ -3,25 +3,24 @@
   "compilerOptions": {
     "skipLibCheck": true,
     "module": "esnext",
-    "moduleResolution": "node",
-    "strict": true,
+    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "jsx": "react",
     "allowJs": true,
     "sourceMap": true,
-    "resolveJsonModule": true,
     "checkJs": false,
-    "baseUrl": ".",
     "paths": {
-      "verdaccio-ui/components/*": ["src/components/*"],
-      "verdaccio-ui/design-tokens/*": ["src/design-tokens/*"],
-      "verdaccio-ui/utils/*": ["src/utils/*"]
+      "verdaccio-ui/components/*": ["./src/components/*"],
+      "verdaccio-ui/utils/*": ["./src/utils/*"]
     }
   },
-  "include": ["src", "types/*.d.ts", "i18n/**/*.json"],
+  "include": ["src", "types/*.d.ts", "src/i18n/**/*.json"],
   "references": [
     {
-      "path": "../../node-api"
+      "path": "../../core/types"
+    },
+    {
+      "path": "../../ui-components"
     }
   ]
 }

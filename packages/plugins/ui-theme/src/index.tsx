@@ -1,35 +1,38 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
-import { AppContainer } from 'react-hot-loader';
+import { createRoot } from 'react-dom/client';
 
-import APIProvider from 'verdaccio-ui/providers/API/APIProvider';
-import AppConfigurationContext from 'verdaccio-ui/providers/config';
+import {
+  AppConfigurationProvider,
+  AuthProvider,
+  ErrorBoundary,
+  PersistenceSettingProvider,
+  StyleBaseline,
+  ThemeProvider,
+} from '@verdaccio/ui-components';
 
 import App from './App';
-import StyleBaseline from './design-tokens/StyleBaseline';
-import ThemeProvider from './design-tokens/ThemeProvider';
 
-const rootNode = document.getElementById('root');
-const renderApp = (Component: React.ElementType): void => {
-  ReactDOM.render(
-    <AppContainer>
-      <AppConfigurationContext>
-        <ThemeProvider>
-          <StyleBaseline />
-          <APIProvider>
-            <Component />
-          </APIProvider>
-        </ThemeProvider>
-      </AppConfigurationContext>
-    </AppContainer>,
-    rootNode
-  );
-};
+const container = document.getElementById('root');
 
-renderApp(App);
-
-if (module.hot) {
-  module.hot.accept('./App', () => {
-    renderApp(App);
-  });
+if (!container) {
+  throw new Error('Root container missing');
 }
+
+const root = createRoot(container);
+
+const AppContainer = () => (
+  <ErrorBoundary>
+    <AppConfigurationProvider>
+      <ThemeProvider>
+        <StyleBaseline />
+        <PersistenceSettingProvider>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </PersistenceSettingProvider>
+      </ThemeProvider>
+    </AppConfigurationProvider>
+  </ErrorBoundary>
+);
+
+root.render(<AppContainer />);

@@ -1,76 +1,92 @@
 import buildDebug from 'debug';
-import { SearchInstance } from '@verdaccio/store';
-import { DIST_TAGS } from '@verdaccio/commons-api';
 import { Router } from 'express';
-import { Package } from '@verdaccio/types';
-import { IAuth } from '@verdaccio/auth';
-import { IStorageHandler } from '@verdaccio/store';
-import { $ResponseExtend, $RequestExtend, $NextFunctionVer } from './package';
+import { URLSearchParams } from 'node:url';
+
+import type { Auth } from '@verdaccio/auth';
+import { errorUtils, reqUtils } from '@verdaccio/core';
+import type { searchUtils } from '@verdaccio/core';
+import { WebUrls } from '@verdaccio/middleware';
+import type { Storage } from '@verdaccio/store';
+import type { Manifest } from '@verdaccio/types';
+
+import type { $NextFunctionVer, $RequestExtend, $ResponseExtend } from './package';
 
 const debug = buildDebug('verdaccio:web:api:search');
 
-function addSearchWebApi(route: Router, storage: IStorageHandler, auth: IAuth): void {
-  const getPackageInfo = async function (name, remoteUser): Promise<any> {
-    return new Promise((resolve, reject) => {
-      debug('searching for %o', name);
-      try {
-        storage.getPackage({
-          name,
-          uplinksLook: false,
-          callback: (err, pkg: Package): void => {
-            debug('callback get package err %o', err?.message);
-            if (!err && pkg) {
-              debug('valid package  %o', pkg?.name);
-              auth.allow_access(
-                { packageName: pkg.name },
-                remoteUser,
-                function (err, allowed): void {
-                  debug('is allowed %o', allowed);
-                  if (err || !allowed) {
-                    debug('deny access');
-                    return;
-                  }
-                  debug('access succeed');
-                  resolve(pkg.versions[pkg[DIST_TAGS].latest]);
-                }
-              );
-            } else {
-              reject(err);
-            }
-          },
-        });
-      } catch (err) {
-        reject(err);
+function checkAccess(pkg: any, auth: any, remoteUser): Promise<Manifest | null> {
+  return new Promise((resolve, reject) => {
+    auth.allow_access({ packageName: pkg?.package?.name }, remoteUser, function (err, allowed) {
+      if (err) {
+        if (err.status && String(err.status).match(/^4\d\d$/)) {
+          // auth plugin returns 4xx user error,
+          // that's equivalent of !allowed basically
+          return resolve(null);
+        } else {
+          reject(err);
+        }
+      } else {
+        return resolve(allowed ? pkg : null);
       }
     });
-  };
+  });
+}
 
-  route.get(
-    '/search/:anything',
+function addSearchWebApi(storage: Storage, auth: Auth): Router {
+  const router = Router(); /* eslint new-cap: 0 */
+  router.get(
+    WebUrls.search,
     async function (
       req: $RequestExtend,
-      res: $ResponseExtend,
+      _res: $ResponseExtend,
       next: $NextFunctionVer
     ): Promise<void> {
-      const results: string[] = SearchInstance.query(req.params.anything);
-      debug('search results %o', results);
-      if (results.length > 0) {
-        let packages: Package[] = [];
-        for (let pkgName of results) {
-          try {
-            const pkg = await getPackageInfo(pkgName, req.remote_user);
-            debug('package found %o', pkgName);
-            packages.push(pkg);
-          } catch (err) {
-            debug('search for %o failed err %o', pkgName, err?.message);
-          }
-        }
-        next(packages);
-      } else {
-        next([]);
+      const abort = new AbortController();
+      const onClientClose = (): void => {
+        debug('search web aborted');
+        abort.abort();
+      };
+      req.socket.on('close', onClientClose);
+      try {
+        const text = reqUtils.paramToString(req.params.anything);
+        // These values are declared as optimal by npm cli
+        // FUTURE: could be overwritten by ui settings.
+        const size = 20;
+        const from = 0;
+        const query: searchUtils.SearchQuery = {
+          from: 0,
+          maintenance: 0.5,
+          popularity: 0.98,
+          quality: 0.65,
+          size: 20,
+          text,
+        };
+        // @ts-ignore
+        const urlParams = new URLSearchParams(query);
+        debug('search web init');
+        const data = await storage?.search({
+          query,
+          url: `/-/v1/search?${urlParams.toString()}`,
+          abort,
+        });
+        const checkAccessPromises = await Promise.all(
+          data.map((pkgItem) => {
+            return checkAccess(pkgItem, auth, req.remote_user);
+          })
+        );
+
+        const final = checkAccessPromises
+          .filter((i): i is Manifest => i !== null)
+          .slice(from, size);
+
+        next(final);
+      } catch (err: any) {
+        next(errorUtils.getInternalError(err.message));
+      } finally {
+        req.socket.off('close', onClientClose);
       }
     }
   );
+  return router;
 }
 
 export default addSearchWebApi;

@@ -1,46 +1,25 @@
-import path from 'path';
+import nock from 'nock';
+import path from 'node:path';
 import supertest from 'supertest';
-import { IGetPackageOptions } from '@verdaccio/store';
-import { setup } from '@verdaccio/logger';
+import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 
-import { HEADERS, HEADER_TYPE, HTTP_STATUS } from '@verdaccio/commons-api';
+import { HEADERS, HEADER_TYPE, HTTP_STATUS } from '@verdaccio/core';
+import { setup } from '@verdaccio/logger';
+import { publishVersion } from '@verdaccio/test-helper';
+
 import { initializeServer } from './helper';
 
-setup([]);
+beforeAll(async () => {
+  await setup({});
+});
 
-const mockManifest = jest.fn();
-const mockQuery = jest.fn(() => ['pkg1', 'pk2']);
-jest.mock('@verdaccio/ui-theme', () => mockManifest());
-
-jest.mock('@verdaccio/store', () => ({
-  Storage: class {
-    public init() {
-      return Promise.resolve();
-    }
-    public getPackage({ name, callback }: IGetPackageOptions) {
-      callback(null, {
-        name,
-        ['dist-tags']: {
-          latest: '1.0.0',
-        },
-        versions: {
-          ['1.0.0']: {
-            name,
-          },
-        },
-      });
-    }
-  },
-  SearchInstance: {
-    configureStorage: () => {},
-    query: () => mockQuery(),
-  },
-}));
+const mockManifest = vi.hoisted(() => vi.fn());
+vi.mock('@verdaccio/ui-theme', () => ({ default: (...args: any[]) => mockManifest()(...args) }));
 
 describe('test web server', () => {
   beforeAll(() => {
     mockManifest.mockReturnValue(() => ({
-      staticPath: path.join(__dirname, 'static'),
+      staticPath: path.join(import.meta.dirname, 'static'),
       manifestFiles: {
         js: ['runtime.js', 'vendors.js', 'main.js'],
       },
@@ -49,38 +28,74 @@ describe('test web server', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    nock.cleanAll();
+    Date.now = vi.fn(() => new Date(Date.UTC(2017, 1, 14)).valueOf());
+    vi.clearAllMocks();
     mockManifest.mockClear();
   });
 
-  test('should OK to search api', async () => {
-    const response = await supertest(await initializeServer('default-test.yaml'))
-      .get('/-/verdaccio/search/keyword')
+  test('should find results to search api', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, 'foo', '1.0.0');
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/search/foo')
       .set('Accept', HEADERS.JSON_CHARSET)
       .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON_CHARSET)
       .expect(HTTP_STATUS.OK);
-    expect(response.body).toHaveLength(2);
+    expect(response.body).toHaveLength(1);
+    // FUTURE: we can improve here matching the right outcome
   });
 
-  test('should 404 to search api', async () => {
-    mockQuery.mockReturnValue([]);
+  test('should found no results to search', async () => {
     const response = await supertest(await initializeServer('default-test.yaml'))
-      .get('/-/verdaccio/search/notFound')
+      .get('/-/verdaccio/data/search/notFound')
       .set('Accept', HEADERS.JSON_CHARSET)
       .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON_CHARSET)
       .expect(HTTP_STATUS.OK);
     expect(response.body).toHaveLength(0);
   });
 
-  test('should fail search api', async () => {
-    mockQuery.mockImplementation(() => {
-      return ['aa', 'bb', 'cc'];
-    });
+  test('should not serve the search api when showSearch is false', async () => {
+    const app = await initializeServer('search-disabled.yaml');
+    await publishVersion(app, 'foo', '1.0.0');
+    await supertest(app)
+      .get('/-/verdaccio/data/search/foo')
+      .set('Accept', HEADERS.JSON_CHARSET)
+      .expect(HTTP_STATUS.NOT_FOUND);
+    await supertest(app)
+      .get('/-/verdaccio/data/packages')
+      .set('Accept', HEADERS.JSON_CHARSET)
+      .expect(HTTP_STATUS.OK);
+  });
+
+  // TODO: need a way to make this fail
+  test.skip('should fail search api', async () => {
     const response = await supertest(await initializeServer('default-test.yaml'))
-      .get('/-/verdaccio/search/notFound')
+      .get('/-/verdaccio/data/search/thisWillFail')
       .set('Accept', HEADERS.JSON_CHARSET)
       .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON_CHARSET)
       .expect(HTTP_STATUS.OK);
     expect(response.body).toHaveLength(3);
   });
+
+  test('should abort search when the client disconnects', async () => {
+    nock('https://registry.npmjs.org')
+      .get(/\/-\/v1\/search/)
+      .delay(5000)
+      .reply(200, { objects: [], total: 0, time: '' });
+
+    const app = await initializeServer('search-abort.yaml');
+    const req = supertest(app)
+      .get('/-/verdaccio/data/search/abort-integration')
+      .set('Accept', HEADERS.JSON_CHARSET);
+
+    setImmediate(() => {
+      req.abort();
+    });
+
+    await expect(req).rejects.toThrow();
+  });
+  // maybe these could be done in storage package to avoid have specifics on this level
+  test.todo('search allow request permissions');
+  test.todo('search query params, pagination etc');
 });

@@ -1,7 +1,7 @@
 {
   "name": "@verdaccio/store",
-  "version": "6.0.0-6-next.6",
-  "description": "loaders logic",
+  "version": "9.0.0-next-9.44",
+  "description": "Verdaccio Storage",
   "main": "./build/index.js",
   "types": "build/index.d.ts",
   "author": {
@@ -10,7 +10,11 @@
   },
   "repository": {
     "type": "https",
-    "url": "https://github.com/verdaccio/verdaccio"
+    "url": "https://github.com/verdaccio/verdaccio",
+    "directory": "packages/store"
+  },
+  "bugs": {
+    "url": "https://github.com/verdaccio/verdaccio/issues"
   },
   "license": "MIT",
   "homepage": "https://verdaccio.org",
@@ -26,39 +30,56 @@
     "verdaccio"
   ],
   "engines": {
-    "node": ">=10",
-    "npm": ">=6"
+    "node": ">=24"
   },
   "scripts": {
     "clean": "rimraf ./build",
-    "test": "cross-env NODE_ENV=test BABEL_ENV=test jest",
-    "type-check": "tsc --noEmit -p tsconfig.build.json",
-    "build:types": "tsc --emitDeclarationOnly -p tsconfig.build.json",
-    "build:js": "babel src/ --out-dir build/ --copy-files --extensions \".ts,.tsx\" --source-maps",
-    "watch": "pnpm build:js -- --watch",
-    "build": "pnpm run build:js && pnpm run build:types"
+    "test": "vitest run --fsModuleCachePath node_modules/.vitest-cache --testTimeout 20000",
+    "watch": "vite build --watch",
+    "build": "vite build"
   },
   "dependencies": {
-    "@verdaccio/commons-api": "workspace:11.0.0-alpha.3",
-    "@verdaccio/config": "workspace:6.0.0-6-next.4",
-    "@verdaccio/loaders": "workspace:6.0.0-6-next.4",
-    "@verdaccio/local-storage": "workspace:11.0.0-6-next.5",
-    "@verdaccio/logger": "workspace:6.0.0-6-next.4",
-    "@verdaccio/proxy": "workspace:6.0.0-6-next.6",
-    "@verdaccio/streams": "workspace:11.0.0-alpha.3",
-    "@verdaccio/utils": "workspace:6.0.0-alpha.3",
-    "async": "3.1.1",
-    "debug": "^4.1.1",
-    "lodash": "4.17.15",
-    "lunr-mutable-indexes": "^2.3.2",
-    "semver": "7.1.2"
+    "@verdaccio/config": "workspace:9.0.0-next-9.44",
+    "@verdaccio/core": "workspace:9.0.0-next-9.44",
+    "@verdaccio/loaders": "workspace:9.0.0-next-9.44",
+    "@verdaccio/local-storage": "workspace:14.0.0-next-9.44",
+    "@verdaccio/logger": "workspace:9.0.0-next-9.44",
+    "@verdaccio/proxy": "workspace:9.0.0-next-9.44",
+    "@verdaccio/search": "workspace:9.0.0-next-9.44",
+    "@verdaccio/tarball": "workspace:14.0.0-next-9.44",
+    "@verdaccio/url": "workspace:14.0.0-next-9.44",
+    "debug": "4.4.3",
+    "lodash-es": "4.18.1",
+    "lru-cache": "11.5.0",
+    "semver": "7.8.5"
   },
   "devDependencies": {
-    "@verdaccio/mock": "workspace:6.0.0-6-next.4",
-    "@verdaccio/types": "workspace:11.0.0-6-next.4"
+    "@types/lodash-es": "4.17.12",
+    "@verdaccio/test-helper": "workspace:5.0.0-next-9.45",
+    "@verdaccio/types": "workspace:14.0.0-next-9.20",
+    "mockdate": "3.0.5",
+    "nock": "13.5.6",
+    "node-mocks-http": "1.18.1",
+    "rimraf": "6.1.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
   },
   "funding": {
     "type": "opencollective",
     "url": "https://opencollective.com/verdaccio"
+  },
+  "module": "./build/index.mjs",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.mjs"
+      },
+      "require": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.js"
+      }
+    },
+    "./build/*": "./build/*"
   }
 }

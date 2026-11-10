@@ -11,13 +11,16 @@
       "path": "../config"
     },
     {
-      "path": "../core/commons-api"
+      "path": "../core/core"
     },
     {
-      "path": "../core/local-storage"
+      "path": "../core/tarball"
     },
     {
-      "path": "../core/streams"
+      "path": "../core/types"
+    },
+    {
+      "path": "../core/url"
     },
     {
       "path": "../loaders"
@@ -26,13 +29,16 @@
       "path": "../logger"
     },
     {
-      "path": "../mock"
+      "path": "../plugins/local-storage"
     },
     {
       "path": "../proxy"
     },
     {
-      "path": "../utils"
+      "path": "../search"
+    },
+    {
+      "path": "../tools/helpers"
     }
   ]
 }

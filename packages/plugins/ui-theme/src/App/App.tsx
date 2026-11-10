@@ -1,87 +1,131 @@
-/* eslint-disable react/jsx-max-depth */
-import styled from '@emotion/styled';
-import isNil from 'lodash/isNil';
-import React, { useState, useEffect, Suspense } from 'react';
-import { Router } from 'react-router-dom';
+import Box from '@mui/material/Box';
+import { styled } from '@mui/material/styles';
+import * as FlagsIcon from 'country-flag-icons/react/3x2';
+import React, { StrictMode, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
+import { BrowserRouter, useLocation } from 'react-router';
 
-import Box from 'verdaccio-ui/components/Box';
-import Loading from 'verdaccio-ui/components/Loading';
-import loadDayJSLocale from 'verdaccio-ui/design-tokens/load-dayjs-locale';
-import StyleBaseline from 'verdaccio-ui/design-tokens/StyleBaseline';
-import { Theme } from 'verdaccio-ui/design-tokens/theme';
-import { isTokenExpire } from 'verdaccio-ui/utils/login';
-import storage from 'verdaccio-ui/utils/storage';
+import {
+  ErrorBoundary,
+  Footer,
+  Header,
+  HeaderInfoDialog,
+  Loading,
+  Route,
+  SearchProvider,
+  TranslatorProvider,
+  breakPoints,
+  useConfig,
+} from '@verdaccio/ui-components';
 
-import AppContextProvider from './AppContextProvider';
-import AppRoute, { history } from './AppRoute';
-import Footer from './Footer';
-import Header from './Header';
+import Contributors from '../components/Contributors';
+import Support from '../components/Support';
+import about from '../components/about.md';
+import license from '../components/license.md';
+import i18n from '../i18n/config';
+import { listLanguages } from '../i18n/enabledLanguages';
+import loadDayJSLocale from '../i18n/load-dayjs-locale';
+import AppRoute from './AppRoute';
 
-import '../../i18n/config';
-
-const StyledBox = styled(Box)<{ theme?: Theme }>(({ theme }) => ({
-  backgroundColor: theme?.palette.background.default,
+const StyledBox = styled(Box)(({ theme }) => ({
+  backgroundColor: theme.palette.background.default,
 }));
 
-const StyledBoxContent = styled(Box)<{ theme?: Theme }>(({ theme }) => ({
-  [`@media screen and (min-width: ${theme?.breakPoints.container}px)`]: {
-    maxWidth: theme?.breakPoints.container,
+const StyledBoxContent = styled(Box)({
+  [`@media screen and (min-width: ${breakPoints.container}px)`]: {
+    maxWidth: breakPoints.container,
     width: '100%',
     marginLeft: 'auto',
     marginRight: 'auto',
   },
+});
+
+const Flags = styled('span')(() => ({
+  width: '25px',
 }));
 
-/* eslint-disable react/jsx-no-bind */
-/* eslint-disable react-hooks/exhaustive-deps */
-const App: React.FC = () => {
-  const [user, setUser] = useState<undefined | { username: string | null }>();
-  /**
-   * Logout user
-   * Required by: <Header />
-   */
-  const logout = () => {
-    storage.removeItem('username');
-    storage.removeItem('token');
-    setUser(undefined);
-  };
+function CustomInfoDialog({ onCloseDialog, title, isOpen }) {
+  const { t } = useTranslation();
+  return (
+    <HeaderInfoDialog
+      dialogTitle={title}
+      isOpen={isOpen}
+      onCloseDialog={onCloseDialog}
+      tabPanels={[
+        {
+          element: (
+            <>
+              <ReactMarkdown>{about}</ReactMarkdown>
+              <Contributors />
+            </>
+          ),
+        },
+        { element: <ReactMarkdown>{license}</ReactMarkdown> },
+        { element: <Support /> },
+      ]}
+      tabs={[
+        { label: t('about') },
+        { label: t('dialog.license') },
+        {
+          label: '',
+          // icon-only tab: without an aria-label it has no accessible name
+          'aria-label': t('dialog.support'),
+          icon: (
+            <Flags>
+              <FlagsIcon.UA />
+            </Flags>
+          ),
+        },
+      ]}
+    />
+  );
+}
 
-  const checkUserAlreadyLoggedIn = () => {
-    // checks for token validity
-    const token = storage.getItem('token');
-    const username = storage.getItem('username');
-
-    if (isTokenExpire(token) || isNil(username)) {
-      logout();
-      return;
-    }
-
-    setUser({ username });
-  };
-
-  useEffect(() => {
-    checkUserAlreadyLoggedIn();
-    loadDayJSLocale();
-  }, []);
+const AppContent: React.FC = () => {
+  const { configOptions } = useConfig();
+  const location = useLocation();
+  const isPlainHeader = [
+    Route.LOGIN,
+    Route.SUCCESS,
+    Route.ADD_USER,
+    Route.CHANGE_PASSWORD,
+  ].includes(location.pathname as Route);
 
   return (
-    <Suspense fallback={<Loading />}>
-      <StyleBaseline />
-      <StyledBox display="flex" flexDirection="column" height="100%">
-        <>
-          <Router history={history}>
-            <AppContextProvider user={user}>
-              <Header />
-              <StyledBoxContent flexGrow={1}>
-                <AppRoute />
-              </StyledBoxContent>
-            </AppContextProvider>
-          </Router>
-          <Footer />
-        </>
-      </StyledBox>
-    </Suspense>
+    <StyledBox display="flex" flexDirection="column" height="100%">
+      <SearchProvider>
+        <Header HeaderInfoDialog={CustomInfoDialog} isPlainHeader={isPlainHeader} />
+      </SearchProvider>
+      <StyledBoxContent flexGrow={1}>
+        <AppRoute />
+      </StyledBoxContent>
+      {configOptions.showFooter && <Footer />}
+    </StyledBox>
+  );
+};
+
+// the server computes `basename` from the public url / url_prefix already normalized
+// for the router; the raw `url_prefix` config value may lack the leading slash or
+// ignore VERDACCIO_PUBLIC_URL, which makes every route (including /) fail to match
+// @ts-ignore
+const basename = window?.__VERDACCIO_BASENAME_UI_OPTIONS?.basename;
+
+const App: React.FC = () => {
+  return (
+    <StrictMode>
+      <ErrorBoundary>
+        <TranslatorProvider i18n={i18n} listLanguages={listLanguages} onMount={loadDayJSLocale}>
+          <Suspense fallback={<Loading />}>
+            <BrowserRouter basename={basename}>
+              <AppContent />
+            </BrowserRouter>
+          </Suspense>
+        </TranslatorProvider>
+      </ErrorBoundary>
+    </StrictMode>
   );
 };
 
 export default App;
+export { AppContent };

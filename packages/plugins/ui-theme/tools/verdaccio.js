@@ -1,14 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const yalm = require('js-yaml');
+const yaml = require('js-yaml');
 const startServer = require('verdaccio').default;
 
 const storageLocation = path.join(__dirname, '../partials/storage');
 const pluginsLocation = path.join(__dirname, '../partials/plugins');
 const configJsonFormat = Object.assign(
   {},
-  yalm.safeLoad(fs.readFileSync('./tools/_verdaccio.config.yaml', 'utf8')),
+  yaml.load(fs.readFileSync('./tools/_verdaccio.config.yaml', 'utf8')),
   {
     storage: storageLocation,
     plugins: pluginsLocation,
@@ -27,5 +27,5 @@ const serverHandler = function (webServer, addr, pkgName, pkgVersion) {
   });
 };
 
-// https://verdaccio.org/docs/en/node-api
+// https://verdaccio.org/docs/node-api
 startServer(configJsonFormat, 8080, '', '1.0.0', 'verdaccio', serverHandler);

@@ -1,72 +1,24 @@
-import { HTTP_STATUS } from '@verdaccio/commons-api';
+import nock from 'nock';
+import { basename } from 'node:path';
 import supertest from 'supertest';
+import { beforeEach, describe, expect, test } from 'vitest';
+
+import { API_ERROR, API_MESSAGE, HEADERS, HEADER_TYPE, HTTP_STATUS } from '@verdaccio/core';
 import {
-  API_ERROR,
-  API_MESSAGE,
   generatePackageMetadata,
-  HEADER_TYPE,
-  HEADERS,
-} from '@verdaccio/commons-api';
-import { $ResponseExtend, $RequestExtend } from '../../types/custom';
-import { initializeServer, publishVersion } from './_helper';
+  generateRemotePackageMetadata,
+  generateUnPublishPackageMetadata,
+} from '@verdaccio/test-helper';
 
-const mockApiJWTmiddleware = jest.fn(
-  () => (req: $RequestExtend, res: $ResponseExtend, _next): void => {
-    req.remote_user = { name: 'foo', groups: [], real_groups: [] };
-    _next();
-  }
-);
-
-jest.setTimeout(50000000);
-
-jest.mock('@verdaccio/auth', () => ({
-  Auth: class {
-    apiJWTmiddleware() {
-      return mockApiJWTmiddleware();
-    }
-    allow_access(_d, f_, cb) {
-      cb(null, true);
-    }
-    allow_publish(_d, f_, cb) {
-      cb(null, true);
-    }
-
-    allow_unpublish(_d, f_, cb) {
-      cb(null, true);
-    }
-  },
-}));
-
-// const mockStorage = jest.fn(() => {
-// 	const { Storage } = jest.requireActual('@verdaccio/store');
-// 	return {
-// 		Storage: class extends Storage {
-// 			addPackage(name, metadata, cb) {
-// 				super.addPackage(name, metadata, cb);
-// 			}
-// 		}
-// 	};
-// });
-
-// jest.mock('@verdaccio/store', () => {
-// 	const { Storage } = jest.requireActual('@verdaccio/store');
-// 	return ({
-// 		Storage: class extends Storage {
-// 			addPackage(name, metadata, cb) {
-// 				// super.addPackage(name, metadata, cb);
-// 				return mockStorage(name, metadata, cb);
-// 			}
-// 		}
-// 	})
-// });
+import { getPackage, initializeServer, publishVersion } from './_helper';
 
 describe('publish', () => {
-  describe('handle invalid publish formats', () => {
+  describe('handle errors', () => {
     const pkgName = 'test';
     const pkgMetadata = generatePackageMetadata(pkgName, '1.0.0');
-    test.skip('should fail on publish a bad _attachments package', async (done) => {
+    test('should fail on publish a bad _attachments package', async () => {
       const app = await initializeServer('publish.yaml');
-      return supertest(app)
+      const response = await supertest(app)
         .put(`/${encodeURIComponent(pkgName)}`)
         .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
         .send(
@@ -77,118 +29,378 @@ describe('publish', () => {
           )
         )
         .set('accept', HEADERS.GZIP)
-        .expect(HTTP_STATUS.BAD_REQUEST)
-        .then((response) => {
-          console.log('response.body', response.body);
-          expect(response.body.error).toEqual(API_ERROR.UNSUPORTED_REGISTRY_CALL);
-          done();
-        });
+        .expect(HTTP_STATUS.BAD_REQUEST);
+      expect(response.body.error).toEqual(API_ERROR.UNSUPORTED_REGISTRY_CALL);
     });
 
-    test('should fail on publish a bad versions package', async (done) => {
+    test('should fail on publish a bad versions package', async () => {
       const app = await initializeServer('publish.yaml');
-      return supertest(app)
-        .put(`/${encodeURIComponent(pkgName)}`)
-        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
-        .send(
-          JSON.stringify(
-            Object.assign({}, pkgMetadata, {
-              versions: '',
-            })
+      return new Promise((resolve) => {
+        supertest(app)
+          .put(`/${encodeURIComponent(pkgName)}`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .send(
+            JSON.stringify(
+              Object.assign({}, pkgMetadata, {
+                versions: '',
+              })
+            )
           )
-        )
-        .set('accept', HEADERS.GZIP)
-        .expect(HTTP_STATUS.BAD_REQUEST)
-        .then((response) => {
-          console.log('response.body', response.body);
-          expect(response.body.error).toEqual(API_ERROR.UNSUPORTED_REGISTRY_CALL);
-          done();
-        });
+          .set('accept', HEADERS.GZIP)
+          .expect(HTTP_STATUS.BAD_REQUEST)
+          .then((response) => {
+            expect(response.body.error).toEqual(API_ERROR.UNSUPORTED_REGISTRY_CALL);
+            resolve(response);
+          });
+      });
     });
+
+    test.each([['foo', '@scope/foo']])(
+      'should fails on publish a duplicated package',
+      async (pkgName) => {
+        const app = await initializeServer('publish.yaml');
+        await publishVersion(app, pkgName, '1.0.0');
+        new Promise((resolve) => {
+          publishVersion(app, pkgName, '1.0.0')
+            .expect(HTTP_STATUS.CONFLICT)
+            .then((response) => {
+              expect(response.body.error).toEqual(API_ERROR.PACKAGE_EXIST);
+              resolve(response);
+            });
+        });
+      }
+    );
   });
 
   describe('publish a package', () => {
-    test('should publish a package', async (done) => {
-      const app = await initializeServer('publish.yaml');
-      return publishVersion(app, 'publish.yaml', 'foo', '1.0.0')
-        .expect(HTTP_STATUS.CREATED)
-        .then((response) => {
-          expect(response.body.ok).toEqual(API_MESSAGE.PKG_CREATED);
-          done();
+    describe('no proxies setup', () => {
+      test.each([['foo', '@scope/foo']])('should publish a package', async (pkgName) => {
+        const app = await initializeServer('publish.yaml');
+        new Promise((resolve) => {
+          publishVersion(app, pkgName, '1.0.0')
+            .expect(HTTP_STATUS.CREATED)
+            .then((response) => {
+              expect(response.body.ok).toEqual(API_MESSAGE.PKG_CREATED);
+              resolve(response);
+            });
         });
-    });
-
-    test('should publish a new package', async (done) => {
-      const pkgName = 'test';
-      const pkgMetadata = generatePackageMetadata(pkgName, '1.0.0');
-      const app = await initializeServer('publish.yaml');
-      return supertest(app)
-        .put(`/${encodeURIComponent(pkgName)}`)
-        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
-        .send(
-          JSON.stringify(
-            Object.assign({}, pkgMetadata, {
-              _attachments: null,
-            })
-          )
-        )
-        .set('accept', HEADERS.GZIP)
-        .expect(HTTP_STATUS.CREATED)
-        .then((response) => {
-          expect(response.body.ok).toEqual(API_MESSAGE.PKG_CREATED);
-          done();
-        });
-    });
-
-    test('should publish a new package with no readme', async (done) => {
-      const pkgName = 'test';
-      const pkgMetadata = generatePackageMetadata(pkgName, '1.0.0');
-      const app = await initializeServer('publish.yaml');
-      return supertest(app)
-        .put(`/${encodeURIComponent(pkgName)}`)
-        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
-        .send(
-          JSON.stringify(
-            Object.assign({}, pkgMetadata, {
-              versions: {
-                ['1.0.0']: {
-                  readme: null,
-                },
-              },
-            })
-          )
-        )
-        .set('accept', HEADERS.GZIP)
-        .expect(HTTP_STATUS.CREATED)
-        .then((response) => {
-          expect(response.body.ok).toEqual(API_MESSAGE.PKG_CREATED);
-          done();
-        });
-    });
-  });
-
-  test('should fails on publish a duplicated package', async (done) => {
-    const app = await initializeServer('publish.yaml');
-    await publishVersion(app, 'publish.yaml', 'foo', '1.0.0');
-    return publishVersion(app, 'publish.yaml', 'foo', '1.0.0')
-      .expect(HTTP_STATUS.CONFLICT)
-      .then((response) => {
-        console.log('response.body', response.body);
-        expect(response.body.error).toEqual(API_ERROR.PACKAGE_EXIST);
-        done();
       });
+
+      test.each([['foo', '@scope/foo']])('should publish a new package', async (pkgName) => {
+        const pkgMetadata = generatePackageMetadata(pkgName, '1.0.0');
+        const app = await initializeServer('publish.yaml');
+        new Promise((resolve) => {
+          supertest(app)
+            .put(`/${encodeURIComponent(pkgName)}`)
+            .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+            .send(JSON.stringify(Object.assign({}, pkgMetadata)))
+            .set('accept', HEADERS.GZIP)
+            .expect(HTTP_STATUS.CREATED)
+            .then((response) => {
+              expect(response.body.ok).toEqual(API_MESSAGE.PKG_CREATED);
+              resolve(response);
+            });
+        });
+      });
+
+      test('should publish a new package with no readme', async () => {
+        const pkgName = 'test';
+        const pkgMetadata = generatePackageMetadata(pkgName, '1.0.0');
+        const app = await initializeServer('publish.yaml');
+        return new Promise((resolve) => {
+          supertest(app)
+            .put(`/${encodeURIComponent(pkgName)}`)
+            .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+            .send(
+              JSON.stringify(
+                Object.assign({}, pkgMetadata, {
+                  versions: {
+                    ['1.0.0']: {
+                      readme: null,
+                    },
+                  },
+                })
+              )
+            )
+            .set('accept', HEADERS.GZIP)
+            .expect(HTTP_STATUS.CREATED)
+            .then((response) => {
+              expect(response.body.ok).toEqual(API_MESSAGE.PKG_CREATED);
+              resolve(response);
+            });
+        });
+      });
+    });
+
+    describe('proxies setup', () => {
+      test.each([['foo', '@scope%2Ffoo']])(
+        'should publish a a patch package that already exist on a remote',
+        async (pkgName) => {
+          const upstreamManifest = generateRemotePackageMetadata(
+            pkgName,
+            '1.0.0',
+            'https://registry.npmjs.org',
+            ['1.0.1', '1.0.2', '1.0.3']
+          );
+          nock('https://registry.npmjs.org').get(`/${pkgName}`).reply(200, upstreamManifest);
+          const app = await initializeServer('publish-proxy.yaml');
+          const manifest = await getPackage(app, '', decodeURIComponent(pkgName));
+          expect(manifest.body.name).toEqual(decodeURIComponent(pkgName));
+          const response = await publishVersion(
+            app,
+            decodeURIComponent(pkgName),
+            '1.0.1-patch'
+          ).expect(HTTP_STATUS.CREATED);
+          expect(response.body.ok).toEqual(API_MESSAGE.PKG_CHANGED);
+          const response2 = await publishVersion(
+            app,
+            decodeURIComponent(pkgName),
+            '1.0.2-patch'
+          ).expect(HTTP_STATUS.CREATED);
+          expect(response2.body.ok).toEqual(API_MESSAGE.PKG_CHANGED);
+        }
+      );
+    });
   });
 
   describe('unpublish a package', () => {
-    let app;
+    test.each([undefined, 'deprecated version', ''])(
+      'should only accept a version unpublish on the revision route (deprecated: %s)',
+      async (deprecated) => {
+        const pkgName = 'version-unpublish-route';
+        const app = await initializeServer('publish.yaml');
+        await publishVersion(app, pkgName, '1.0.0').expect(HTTP_STATUS.CREATED);
+        await publishVersion(app, pkgName, '1.0.1').expect(HTTP_STATUS.CREATED);
 
-    beforeEach(async () => {
-      app = await initializeServer('publish.yaml');
-      await publishVersion(app, 'publish.yaml', 'foo', '1.0.0');
+        const manifest = await getPackage(app, '', pkgName).set('host', 'localhost');
+        const body = generateUnPublishPackageMetadata(
+          pkgName,
+          ['1.0.1'],
+          { latest: '1.0.1' },
+          manifest.body._rev
+        );
+        if (deprecated !== undefined) {
+          body.versions['1.0.1'].deprecated = deprecated;
+        }
+
+        await supertest(app)
+          .put(`/${pkgName}`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .send(body)
+          .expect(HTTP_STATUS.BAD_REQUEST);
+
+        const unchanged = await getPackage(app, '', pkgName).set('host', 'localhost');
+        expect(unchanged.body).toEqual(manifest.body);
+
+        await supertest(app)
+          .put(`/${pkgName}/-rev/${encodeURIComponent(manifest.body._rev)}`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .send(body)
+          .expect(HTTP_STATUS.CREATED);
+
+        const updated = await getPackage(app, '', pkgName);
+        expect(Object.keys(updated.body.versions)).toEqual(['1.0.1']);
+        expect(updated.body.versions['1.0.1'].deprecated).toEqual(deprecated || undefined);
+      }
+    );
+
+    test.each(['deprecated version', ''])(
+      'should retain all versions when updating deprecation through the publish route (%s)',
+      async (deprecated) => {
+        const pkgName = 'deprecation-publish-route';
+        const app = await initializeServer('publish.yaml');
+        await publishVersion(app, pkgName, '1.0.0').expect(HTTP_STATUS.CREATED);
+        await publishVersion(app, pkgName, '1.0.1').expect(HTTP_STATUS.CREATED);
+
+        const manifest = await getPackage(app, '', pkgName);
+        const body = manifest.body;
+        body.versions['1.0.1'].deprecated = deprecated;
+
+        await supertest(app)
+          .put(`/${pkgName}`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .send(body)
+          .expect(HTTP_STATUS.CREATED);
+
+        const updated = await getPackage(app, '', pkgName);
+        expect(Object.keys(updated.body.versions)).toEqual(['1.0.0', '1.0.1']);
+        expect(updated.body.versions['1.0.0'].deprecated).toBeUndefined();
+        expect(updated.body.versions['1.0.1'].deprecated).toEqual(deprecated || undefined);
+      }
+    );
+
+    test.each([['foo', '@scope/foo']])('should unpublish entirely a package', async (pkgName) => {
+      const app = await initializeServer('publish.yaml');
+      await publishVersion(app, pkgName, '1.0.0');
+      const response = await supertest(app)
+        // FIXME: should be filtered by revision to avoid
+        // conflicts
+        .delete(`/${encodeURIComponent(pkgName)}/-rev/xxx`)
+        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+        .expect(HTTP_STATUS.CREATED);
+      expect(response.body.ok).toEqual(API_MESSAGE.PKG_REMOVED);
+      // package should be completely un published
+      await supertest(app)
+        .get(`/${pkgName}`)
+        .set('Accept', HEADERS.JSON)
+        .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON_CHARSET)
+        .expect(HTTP_STATUS.NOT_FOUND);
     });
 
-    test('should unpublish a package', () => {});
+    test.each([['foo', '@scope/foo']])(
+      'should fails unpublish entirely a package',
+      async (pkgName) => {
+        const app = await initializeServer('publish.yaml');
+        const response = await supertest(app)
+          .delete(`/${encodeURIComponent(pkgName)}/-rev/1cf3-fe3`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .expect(HTTP_STATUS.NOT_FOUND);
+        expect(response.body.error).toEqual(API_ERROR.NO_PACKAGE);
+      }
+    );
+
+    test.each([['foo', '@scope/foo']])(
+      'should fails remove a tarball of a package does not exist',
+      async (pkgName) => {
+        const app = await initializeServer('publish.yaml');
+        const response = await supertest(app)
+          .delete(`/${pkgName}/-/${basename(pkgName)}-1.0.3.tgz/-rev/revision`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .expect(HTTP_STATUS.NOT_FOUND);
+        expect(response.body.error).toEqual(API_ERROR.NO_PACKAGE);
+      }
+    );
+
+    test.each([['foo', '@scope/foo']])(
+      'should fails on try remove a tarball does not exist',
+      async (pkgName) => {
+        const app = await initializeServer('publish.yaml');
+        await publishVersion(app, pkgName, '1.0.0');
+        const response = await supertest(app)
+          .delete(`/${pkgName}/-/${basename(pkgName)}-1.0.3.tgz/-rev/revision`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .expect(HTTP_STATUS.NOT_FOUND);
+        expect(response.body.error).toEqual(API_ERROR.NO_SUCH_FILE);
+      }
+    );
+
+    test.each([['foo', '@scope/foo']])(
+      'should remove a tarball that does exist',
+      async (pkgName) => {
+        const app = await initializeServer('publish.yaml');
+        await publishVersion(app, pkgName, '1.0.0');
+        const response = await supertest(app)
+          .delete(`/${pkgName}/-/${basename(pkgName)}-1.0.0.tgz/-rev/revision`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .expect(HTTP_STATUS.CREATED);
+        expect(response.body.ok).toEqual(API_MESSAGE.TARBALL_REMOVED);
+      }
+    );
   });
 
-  describe('star a package', () => {});
+  describe('notifications', () => {
+    const notifyDomain = 'http://slack-service';
+    const notifyPath = '/foo?auth_token=mySecretToken';
+
+    // notifications are fired in a non-blocking way (the publish/unpublish
+    // response does not wait for them), so the assertion cannot rely on the
+    // request having completed by the time the HTTP response resolves. Poll the
+    // nock scope until the interceptor has been consumed (or time out).
+    const waitForScopeDone = async (scope: nock.Scope, timeout = 3000): Promise<void> => {
+      const start = Date.now();
+      while (!scope.isDone() && Date.now() - start < timeout) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+
+    beforeEach(() => {
+      nock.cleanAll();
+    });
+
+    test.each([['notify-pkg', '@scope/notify-pkg']])(
+      'should trigger notification when publishing a package',
+      async (pkgName) => {
+        const notifyScope = nock(notifyDomain)
+          .post(notifyPath, (body) => {
+            expect(body).toEqual({
+              color: 'green',
+              message: `New package published: * ${pkgName}*`,
+              publishedPackage: `${pkgName}@1.0.0`,
+              publishType: 'publish',
+              message_format: 'text',
+              notify: true,
+            });
+            return true;
+          })
+          .reply(200);
+
+        const app = await initializeServer('publish-notify.yaml');
+        await publishVersion(app, pkgName, '1.0.0').expect(HTTP_STATUS.CREATED);
+        await waitForScopeDone(notifyScope);
+        expect(notifyScope.isDone()).toBe(true);
+      }
+    );
+
+    test.each([['notify-unpublish-pkg', '@scope/notify-unpublish-pkg']])(
+      'should trigger notification when unpublishing a package entirely',
+      async (pkgName) => {
+        const app = await initializeServer('publish-notify.yaml');
+        await publishVersion(app, pkgName, '1.0.0').expect(HTTP_STATUS.CREATED);
+        nock.cleanAll();
+
+        const notifyScope = nock(notifyDomain)
+          .post(notifyPath, (body) => {
+            expect(body).toEqual({
+              color: 'green',
+              message: `New package published: * ${pkgName}*`,
+              publishedPackage: pkgName,
+              publishType: 'unpublish',
+              message_format: 'text',
+              notify: true,
+            });
+            return true;
+          })
+          .reply(200);
+
+        await supertest(app)
+          .delete(`/${encodeURIComponent(pkgName)}/-rev/xxx`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .expect(HTTP_STATUS.CREATED);
+
+        await waitForScopeDone(notifyScope);
+        expect(notifyScope.isDone()).toBe(true);
+      }
+    );
+
+    test.each([['notify-tarball-pkg', '@scope/notify-tarball-pkg']])(
+      'should trigger notification when removing a tarball',
+      async (pkgName) => {
+        const app = await initializeServer('publish-notify.yaml');
+        await publishVersion(app, pkgName, '1.0.0').expect(HTTP_STATUS.CREATED);
+        nock.cleanAll();
+
+        const notifyScope = nock(notifyDomain)
+          .post(notifyPath, (body) => {
+            expect(body).toEqual({
+              color: 'green',
+              message: `New package published: * ${pkgName}*`,
+              publishedPackage: `${pkgName}@1.0.0`,
+              publishType: 'unpublish',
+              message_format: 'text',
+              notify: true,
+            });
+            return true;
+          })
+          .reply(200);
+
+        await supertest(app)
+          .delete(`/${pkgName}/-/${basename(pkgName)}-1.0.0.tgz/-rev/revision`)
+          .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+          .expect(HTTP_STATUS.CREATED);
+
+        await waitForScopeDone(notifyScope);
+        expect(notifyScope.isDone()).toBe(true);
+      }
+    );
+  });
 });

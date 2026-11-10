@@ -1,82 +1,80 @@
-import pino from 'pino';
-import _ from 'lodash';
+// <reference types="node" />
 import buildDebug from 'debug';
+import { unregister as onExitUnregister } from 'on-exit-leak-free';
+import type { LoggerOptions } from 'pino';
+
+import type { Logger, LoggerConfigItem, LoggerFormat } from '@verdaccio/types';
+
+import { fillInMsgTemplate } from './formatter';
+import { createPrettyTransport, isPrettyFormat } from './transport';
 
 const debug = buildDebug('verdaccio:logger');
-
-export let logger;
 
 function isProd() {
   return process.env.NODE_ENV === 'production';
 }
 
 const DEFAULT_LOG_FORMAT = isProd() ? 'json' : 'pretty';
+debug('default log format: %s', DEFAULT_LOG_FORMAT);
 
 export type LogPlugin = {
   dest: string;
   options?: any[];
 };
 
-export type LogType = 'file' | 'stdout';
-export type LogFormat = 'json' | 'pretty-timestamped' | 'pretty';
-
 export function createLogger(
-  options = { level: 'http' },
-  destination = pino.destination(1),
-  format: LogFormat = DEFAULT_LOG_FORMAT,
-  prettyPrintOptions = {
-    // we hide warning since the prettifier should not be used in production
-    // https://getpino.io/#/docs/pretty?id=prettifier-api
-    suppressFlushSyncWarning: true,
-  }
-) {
-  if (_.isNil(format)) {
-    format = DEFAULT_LOG_FORMAT;
-  }
-
-  let pinoConfig = {
+  options: LoggerConfigItem = { level: 'http' },
+  destination: NodeJS.WritableStream | undefined,
+  format: LoggerFormat = DEFAULT_LOG_FORMAT,
+  pino
+): any {
+  debug('setup logger');
+  let pinoConfig: LoggerOptions = {
     customLevels: {
       http: 25,
     },
-    ...options,
     level: options.level,
     serializers: {
       err: pino.stdSerializers.err,
       req: pino.stdSerializers.req,
       res: pino.stdSerializers.res,
     },
+    redact: options.redact,
   };
 
   debug('has prettifier? %o', !isProd());
+  let logger;
   // pretty logs are not allowed in production for performance reasons
-  if ((format === DEFAULT_LOG_FORMAT || format !== 'json') && isProd() === false) {
-    pinoConfig = Object.assign({}, pinoConfig, {
-      // more info
-      // https://github.com/pinojs/pino-pretty/issues/37
-      prettyPrint: {
-        levelFirst: true,
-        prettyStamp: format === 'pretty-timestamped',
-        ...prettyPrintOptions,
+  if (isPrettyFormat(format) && isProd() === false) {
+    const transport = createPrettyTransport(pino, options, format);
+    logger = pino(pinoConfig, transport);
+  } else {
+    pinoConfig = {
+      ...pinoConfig,
+      // https://getpino.io/#/docs/api?id=hooks-object
+      hooks: {
+        logMethod(args: [obj: unknown, msg?: string, ...rest: unknown[]], method, _level) {
+          const [templateObject, message, ...otherArgs] = args;
+          const templateVars =
+            !!templateObject && typeof templateObject === 'object'
+              ? Object.getOwnPropertyNames(templateObject)
+              : [];
+          if (!message || !templateVars.length) return method.apply(this, args);
+          const hydratedMessage = fillInMsgTemplate(message, templateObject as any, false);
+          return method.apply(this, [templateObject, hydratedMessage, ...otherArgs] as any);
+        },
       },
-      prettifier: require('@verdaccio/logger-prettify'),
-    });
+    };
+    logger = pino(pinoConfig, destination);
   }
-  const logger = pino(pinoConfig, destination);
 
   if (process.env.DEBUG) {
-    logger.on('level-change', (lvl, val, prevLvl, prevVal) => {
+    logger.on('level-change', (lvl, val, prevLvl, prevVal, instance) => {
+      if (logger !== instance) {
+        return;
+      }
       debug('%s (%d) was changed to %s (%d)', lvl, val, prevLvl, prevVal);
     });
-  }
-
-  return logger;
-}
-
-export function getLogger() {
-  if (_.isNil(logger)) {
-    // FIXME: not sure about display here a warning
-    process.emitWarning('logger is not defined');
-    return;
   }
 
   return logger;
@@ -88,72 +86,110 @@ const DEFAULT_LOGGER_CONF: LoggerConfigItem = {
   level: 'http',
 };
 
-export type LoggerConfigItem = {
-  type?: LogType;
-  plugin?: LogPlugin;
-  format?: LogFormat;
-  path?: string;
-  level?: string;
-};
+export type LoggerConfig = LoggerConfigItem;
 
-export type LoggerConfig = LoggerConfigItem[];
+export function willUseTransport(format: LoggerFormat | undefined): boolean {
+  const resolvedFormat = format ?? (isProd() ? 'json' : 'pretty');
+  return isPrettyFormat(resolvedFormat) && isProd() === false;
+}
 
-export function setup(options: LoggerConfig | LoggerConfigItem = [DEFAULT_LOGGER_CONF]) {
-  debug('setup logger');
-  const isLegacyConf = Array.isArray(options);
-  if (isLegacyConf) {
-    const deprecateMessage =
-      'deprecate: multiple logger configuration is deprecated, please check the migration guide.';
-    process.emitWarning(deprecateMessage);
-  }
-
-  // verdaccio 5 does not allow multiple logger configuration
-  // backward compatible, pick only the first option
-  // next major will thrown an error
-  let loggerConfig = isLegacyConf ? options[0] : options;
+export async function prepareSetup(
+  options: LoggerConfigItem = DEFAULT_LOGGER_CONF,
+  pino
+): Promise<Logger> {
+  let loggerConfig = options;
   if (!loggerConfig?.level) {
-    loggerConfig = Object.assign(
-      {},
-      {
-        level: 'http',
-      },
-      loggerConfig
-    );
+    loggerConfig = {
+      ...loggerConfig,
+      level: 'http',
+    };
   }
-  const pinoConfig = { level: loggerConfig.level };
   if (loggerConfig.type === 'file') {
     debug('logging file enabled');
-    logger = createLogger(pinoConfig, pino.destination(loggerConfig.path), loggerConfig.format);
-  } else if (loggerConfig.type === 'rotating-file') {
-    process.emitWarning(
-      'rotating-file type is not longer supported, consider use [logrotate] instead'
-    );
-    debug('logging stdout enabled');
-    logger = createLogger(pinoConfig, pino.destination(1), loggerConfig.format);
-  } else {
-    debug('logging stdout enabled');
-    logger = createLogger(pinoConfig, pino.destination(1), loggerConfig.format);
-  }
-
-  if (isProd()) {
-    // why only on prod? https://github.com/pinojs/pino/issues/920#issuecomment-710807667
-    const finalHandler = pino.final(logger, (err, finalLogger, event) => {
-      finalLogger.info(`${event} caught`);
-      if (err) {
-        finalLogger.error(err, 'error caused exit');
-      }
-      process.exit(err ? 1 : 0);
+    // Pretty format uses a pino transport that creates its own destination stream,
+    // so no destination is needed here.
+    if (willUseTransport(loggerConfig.format)) {
+      return createLogger(loggerConfig, undefined, loggerConfig.format, pino);
+    }
+    // For file destinations (json format), wait for the fd to be ready
+    // so we fail fast on bad paths / permissions instead of losing early logs
+    const destination = pino.destination({
+      dest: loggerConfig.path,
+      sync: loggerConfig.sync ?? false,
+      minLength: 0,
     });
-
-    process.on('uncaughtException', (err) => finalHandler(err, 'uncaughtException'));
-    process.on('unhandledRejection', (err) => finalHandler(err as Error, 'unhandledRejection'));
-    process.on('beforeExit', () => finalHandler(null, 'beforeExit'));
-    process.on('exit', () => finalHandler(null, 'exit'));
-    process.on('uncaughtException', (err) => finalHandler(err, 'uncaughtException'));
-    process.on('SIGINT', () => finalHandler(null, 'SIGINT'));
-    process.on('SIGQUIT', () => finalHandler(null, 'SIGQUIT'));
-    process.on('SIGTERM', () => finalHandler(null, 'SIGTERM'));
+    let errorLogger: Logger | undefined;
+    let reopening = false;
+    let reopenListeners: (() => void)[] = [];
+    const onReopenReady = () => {
+      reopening = false;
+      reopenListeners = [];
+    };
+    const reportedErrors = new WeakSet<Error>();
+    const onRuntimeError = (error: Error) => {
+      // Pino re-emits errors; synchronous reopen failures also throw the same error.
+      if (reportedErrors.has(error)) return;
+      reportedErrors.add(error);
+      // Failed reopens otherwise leave callbacks that close the old fd again on recovery.
+      for (const listener of reopenListeners) destination.removeListener('ready', listener);
+      destination.removeListener('ready', onReopenReady);
+      reopening = false;
+      reopenListeners = [];
+      const reporter: Logger = (errorLogger ??= createLogger(
+        { level: 'error', redact: loggerConfig.redact },
+        pino.destination({ dest: 2, sync: true, minLength: 0 }),
+        'json',
+        pino
+      ));
+      reporter.error({ err: error, path: loggerConfig.path }, 'file log destination error');
+    };
+    await new Promise<void>((resolve, reject) => {
+      const onReady = () => {
+        destination.removeListener('error', onError);
+        destination.on('error', onRuntimeError);
+        resolve();
+      };
+      const onError = (error: Error) => {
+        destination.removeListener('ready', onReady);
+        // A failed open leaves fd=-1, so Pino's exit flush would throw.
+        // SonicBoom.destroy() waits for ready here; unregister the failed stream directly.
+        onExitUnregister(destination);
+        reject(error);
+      };
+      destination.once('ready', onReady);
+      destination.once('error', onError);
+    });
+    debug('file destination ready: %s', loggerConfig.path);
+    const reopen = destination.reopen.bind(destination);
+    // SonicBoom can defer reopening until a pending write finishes.
+    destination.reopen = (file?: string) => {
+      if (!reopening) {
+        reopening = true;
+        destination.once('ready', onReopenReady);
+      }
+      const previousListeners = new Set(destination.rawListeners('ready'));
+      let reopenError: Error | undefined;
+      try {
+        reopen(file);
+      } catch (error) {
+        reopenError = error as Error;
+      } finally {
+        reopenListeners.push(
+          ...destination
+            .rawListeners('ready')
+            .filter((listener) => !previousListeners.has(listener))
+        );
+      }
+      if (reopenError) onRuntimeError(reopenError);
+    };
+    process.on('SIGUSR2', () => {
+      if (!reopening) destination.reopen();
+    });
+    return createLogger(loggerConfig, destination, loggerConfig.format, pino);
   }
-
-  return logger;
+  debug('logging stdout enabled');
+  const destination = willUseTransport(loggerConfig.format)
+    ? undefined
+    : pino.destination({ dest: 1, sync: loggerConfig.sync ?? false, minLength: 0 });
+  return createLogger(loggerConfig, destination, loggerConfig.format, pino);
 }

@@ -1,9 +1,8 @@
-import assert from 'assert';
-import { PackageList, UpLinksConfList } from '@verdaccio/types';
-import _ from 'lodash';
+import { clone, isNil } from 'lodash-es';
+import assert from 'node:assert';
 
-import { getMatchedPackagesSpec } from './package-access';
-import { MatchedPackage } from './config';
+import { authUtils } from '@verdaccio/core';
+import type { PackageList, UpLinksConfList } from '@verdaccio/types';
 
 export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 export const DEFAULT_UPLINK = 'npmjs';
@@ -20,12 +19,12 @@ export function uplinkSanityCheck(
   uplinks: UpLinksConfList,
   users: any = BLACKLIST
 ): UpLinksConfList {
-  const newUplinks = _.clone(uplinks);
-  let newUsers = _.clone(users);
+  const newUplinks = clone(uplinks);
+  let newUsers = clone(users);
 
   for (const uplink in newUplinks) {
     if (Object.prototype.hasOwnProperty.call(newUplinks, uplink)) {
-      if (_.isNil(newUplinks[uplink].cache)) {
+      if (typeof newUplinks[uplink].cache === 'undefined') {
         newUplinks[uplink].cache = true;
       }
       newUsers = sanityCheckNames(uplink, newUsers);
@@ -36,12 +35,15 @@ export function uplinkSanityCheck(
 }
 
 export function sanityCheckUplinksProps(configUpLinks: UpLinksConfList): UpLinksConfList {
-  const uplinks = _.clone(configUpLinks);
+  const uplinks = clone(configUpLinks);
 
   for (const uplink in uplinks) {
     if (Object.prototype.hasOwnProperty.call(uplinks, uplink)) {
       assert(uplinks[uplink].url, 'CONFIG: no url for uplink: ' + uplink);
-      assert(_.isString(uplinks[uplink].url), 'CONFIG: wrong url format for uplink: ' + uplink);
+      assert(
+        typeof uplinks[uplink].url === 'string',
+        'CONFIG: wrong url format for uplink: ' + uplink
+      );
       uplinks[uplink].url = uplinks[uplink].url.replace(/\/$/, '');
     }
   }
@@ -49,12 +51,13 @@ export function sanityCheckUplinksProps(configUpLinks: UpLinksConfList): UpLinks
   return uplinks;
 }
 
-/**
- * Check whether an uplink can proxy
- */
+export function getProxiesForPackage(pkg: string, packages: PackageList): string[] {
+  const matchedPkg = authUtils.getMatchedPackagesSpec(pkg, packages);
+  return matchedPkg?.proxy || [];
+}
+
 export function hasProxyTo(pkg: string, upLink: string, packages: PackageList): boolean {
-  const matchedPkg: MatchedPackage = getMatchedPackagesSpec(pkg, packages);
-  const proxyList = typeof matchedPkg !== 'undefined' ? matchedPkg.proxy : [];
+  const proxyList = getProxiesForPackage(pkg, packages);
   if (proxyList) {
     return proxyList.some((curr) => upLink === curr);
   }
@@ -72,7 +75,7 @@ export function sanityCheckNames(item: string, users: any): any {
     'CONFIG: reserved uplink name: ' + item
   );
   assert(!item.match(/\s/), 'CONFIG: invalid uplink name: ' + item);
-  assert(_.isNil(users[item]), 'CONFIG: duplicate uplink name: ' + item);
+  assert(isNil(users[item]), 'CONFIG: duplicate uplink name: ' + item);
   users[item] = true;
 
   return users;

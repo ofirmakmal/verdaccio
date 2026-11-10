@@ -1,7 +1,7 @@
-/* eslint-disable curly */
 // ensure that all arguments are validated
-import path from 'path';
-import fs from 'fs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, test } from 'vitest';
 
 /**
  * Validate.
@@ -14,7 +14,7 @@ import fs from 'fs';
  */
 describe('api endpoint app.param()', () => {
   let m;
-  const requirePath = path.normalize(path.join(__dirname, '../../src/index.ts'));
+  const requirePath = path.normalize(path.join(import.meta.dirname, '../../src/index.ts'));
   const source = fs.readFileSync(requirePath, 'utf8');
   const very_scary_regexp = /\n\s*app\.(\w+)\s*\(\s*(("[^"]*")|('[^']*'))\s*,/g;
   const appParams = {};
@@ -24,7 +24,7 @@ describe('api endpoint app.param()', () => {
       continue;
     }
 
-    let inner = m[2].slice(1, m[2].length - 1);
+    const inner = m[2].slice(1, m[2].length - 1);
     let t;
 
     inner.split('/').forEach(function (x) {

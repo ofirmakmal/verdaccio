@@ -1,4 +1,8 @@
-export * from './storage';
-export * from './metadata-utils';
-export * from './storage-utils';
-export * from './search';
+export { Storage } from './storage';
+export * from './stage-storage';
+export { applyManifestFilters, loadFilterPlugins } from './filter-pipeline';
+export type { Filters } from './filter-pipeline';
+export * from './lib/storage-utils';
+export * from './lib/versions-utils';
+export * from './lib/publish-utils';
+export * from './type';

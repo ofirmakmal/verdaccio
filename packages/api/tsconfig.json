@@ -14,10 +14,10 @@
       "path": "../config"
     },
     {
-      "path": "../core/commons-api"
+      "path": "../core/core"
     },
     {
-      "path": "../core/tarball"
+      "path": "../core/types"
     },
     {
       "path": "../hooks"
@@ -29,13 +29,10 @@
       "path": "../middleware"
     },
     {
-      "path": "../server"
-    },
-    {
       "path": "../store"
     },
     {
-      "path": "../utils"
+      "path": "../tools/helpers"
     }
   ]
 }

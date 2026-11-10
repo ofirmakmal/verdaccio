@@ -2,6 +2,18 @@ web:
   title: Verdaccio Local Dev
   sort_packages: asc
   primary_color: #CCC
+  # showRaw: true
+  # darkMode: true
+  hideDeprecatedVersions: false
+  pkgManagers:
+    - npm
+    - yarn
+    - pnpm
+
+flags:
+  webLogin: true
+  createUser: true
+  changePassword: true
 
 plugins: ../
 
@@ -14,6 +26,7 @@ auth:
       bar:
         name: bar
         password: test #pragma: allowlist secret
+
 security:
   api:
     jwt:
@@ -27,7 +40,7 @@ security:
 
 uplinks:
   ver:
-    url: https://registry.verdaccio.org/
+    url: https://registry.npmjs.org/
 
 packages:
   '@*/*':
@@ -51,5 +64,4 @@ middlewares:
   audit:
     enabled: true
 
-logs:
-  - { type: stdout, format: pretty, level: trace }
+log: { type: stdout, format: pretty, level: trace }

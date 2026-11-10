@@ -1,6 +1,12 @@
 import { Command, Option } from 'clipanion';
+
 import { findConfigFile, parseConfigFile } from '@verdaccio/config';
+import { pkgUtils, warningUtils } from '@verdaccio/core';
+import { logger, setup } from '@verdaccio/logger';
 import { initServer } from '@verdaccio/node-api';
+import type { ConfigYaml, LoggerConfigItem } from '@verdaccio/types';
+
+import { getPkgNameOverride, getStartServer, getVersionOverride } from '../runtime';
 
 export const DEFAULT_PROCESS_NAME: string = 'verdaccio';
 
@@ -11,7 +17,6 @@ export class InitCommand extends Command {
     description: 'host:port number to listen on (default: localhost:4873)',
   });
 
-  // eslint-disable-next-line
   static usage = Command.Usage({
     description: `launch the server`,
     details: `
@@ -41,18 +46,41 @@ export class InitCommand extends Command {
     description: 'use this configuration file (default: ./config.yaml)',
   });
 
+  private async initLogger(logConfig: ConfigYaml) {
+    if (logConfig.logs) {
+      logConfig.log = logConfig.logs;
+      warningUtils.emit(warningUtils.Codes.VERWAR002);
+    }
+    await setup(logConfig.log as LoggerConfigItem);
+  }
+
   public async execute() {
     try {
       const configPathLocation = findConfigFile(this.config as string);
       const configParsed = parseConfigFile(configPathLocation);
+      await this.initLogger(configParsed);
+      logger.info({ file: configPathLocation }, 'using config file: @{file}');
       const { web } = configParsed;
 
       process.title = web?.title || DEFAULT_PROCESS_NAME;
 
-      const { version, name } = require('../../package.json');
+      const currentDir = import.meta.dirname;
+      const pkg = pkgUtils.getPackageJson(currentDir, '../..');
+      const version = getVersionOverride() ?? (pkg.version as string);
+      const name = getPkgNameOverride() ?? (pkg.name as string);
 
-      await initServer(configParsed, this.port as string, version, name);
-    } catch (err) {
+      await initServer(
+        configParsed,
+        this.port as string,
+        version as string,
+        name as string,
+        getStartServer()
+      );
+
+      const logLevel = configParsed.log?.level || 'default';
+      logger.info({ logLevel }, 'log level: @{logLevel}');
+      logger.info('server started');
+    } catch (err: any) {
       console.error(err);
       process.exit(1);
     }

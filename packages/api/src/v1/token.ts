@@ -1,22 +1,47 @@
-import _ from 'lodash';
-import { HTTP_STATUS, SUPPORT_ERRORS, getInternalError } from '@verdaccio/commons-api';
-import { ErrorCode, stringToMD5, mask } from '@verdaccio/utils';
-import { getApiToken } from '@verdaccio/auth';
-import { logger } from '@verdaccio/logger';
-import { Response, Router } from 'express';
+import type { RequestHandler, Response, Router } from 'express';
+import { isBoolean, isNil } from 'lodash-es';
 
-import { Config, RemoteUser, Token } from '@verdaccio/types';
-import { IAuth } from '@verdaccio/auth';
-import { IStorageHandler } from '@verdaccio/store';
-import { $RequestExtend, $NextFunctionVer } from '../../types/custom';
+import type { Auth } from '@verdaccio/auth';
+import { getApiToken, isReservedTokenKey } from '@verdaccio/auth';
+import {
+  HEADERS,
+  HTTP_STATUS,
+  SUPPORT_ERRORS,
+  cryptoUtils,
+  errorUtils,
+  reqUtils,
+} from '@verdaccio/core';
+import { TOKEN_API_ENDPOINTS, rateLimit } from '@verdaccio/middleware';
+import type { Storage } from '@verdaccio/store';
+import type { Config, Logger, RemoteUser, Token } from '@verdaccio/types';
+
+import type { $NextFunctionVer, $RequestExtend } from '../../types/custom';
+
+// Granular access token options (npm >= 11) that Verdaccio does not implement
+// yet. They are accepted so `npm token create` succeeds, but the restrictions
+// they express are NOT enforced — warn so the operator is not misled.
+const UNSUPPORTED_TOKEN_OPTIONS = [
+  'packages_and_scopes_permission',
+  'packages',
+  'packages_all',
+  'scopes',
+  'orgs',
+  'orgs_permission',
+  'expires',
+  'description',
+  'bypass_2fa',
+];
 
 export type NormalizeToken = Token & {
+  cidr_whitelist: string[];
   created: string;
 };
 
+// npm expects "cidr_whitelist" for token list
 function normalizeToken(token: Token): NormalizeToken {
   return {
     ...token,
+    cidr_whitelist: token.cidr || [],
     created: new Date(token.created).toISOString(),
   };
 }
@@ -24,18 +49,27 @@ function normalizeToken(token: Token): NormalizeToken {
 // https://github.com/npm/npm-profile/blob/latest/lib/index.js
 export default function (
   route: Router,
-  auth: IAuth,
-  storage: IStorageHandler,
-  config: Config
+  auth: Auth,
+  storage: Storage,
+  config: Config,
+  logger: Logger,
+  /** No-op unless the caller has two-factor enabled for this operation. */
+  requireOtp: RequestHandler = (_req, _res, next) => next()
 ): void {
   route.get(
-    '/-/npm/v1/tokens',
+    TOKEN_API_ENDPOINTS.get_tokens,
+    rateLimit(config?.userRateLimit),
     async function (req: $RequestExtend, res: Response, next: $NextFunctionVer) {
       const { name } = req.remote_user;
 
-      if (_.isNil(name) === false) {
+      if (isNil(name) === false) {
         try {
-          const tokens = await storage.readTokens({ user: name });
+          // the token store doubles as a per-user key-value store; rows under a
+          // reserved key are internal state, not access tokens, and listing them
+          // would expose their payload through `npm token ls`
+          const tokens = (await storage.readTokens({ user: name })).filter(
+            ({ key }) => isReservedTokenKey(key) === false
+          );
           const totalTokens = tokens.length;
           logger.debug({ totalTokens }, 'token list retrieved: @{totalTokens}');
 
@@ -46,48 +80,68 @@ export default function (
               next: '', // TODO: pagination?
             },
           });
-        } catch (error) {
+        } catch (error: any) {
           logger.error({ error: error.msg }, 'token list has failed: @{error}');
-          return next(ErrorCode.getCode(HTTP_STATUS.INTERNAL_ERROR, error.message));
+          return next(errorUtils.getCode(HTTP_STATUS.INTERNAL_ERROR, error.message));
         }
       }
-      return next(ErrorCode.getUnauthorized());
+      return next(errorUtils.getUnauthorized());
     }
   );
 
   route.post(
-    '/-/npm/v1/tokens',
+    TOKEN_API_ENDPOINTS.get_tokens,
+    rateLimit(config?.userRateLimit),
+    requireOtp,
     function (req: $RequestExtend, res: Response, next: $NextFunctionVer) {
-      const { password, readonly, cidr_whitelist } = req.body;
+      const { password } = req.body;
       const { name } = req.remote_user;
+      // `readonly` and `cidr_whitelist` are optional: npm >= 11 rewrote
+      // `npm token create` to omit them (and only sends `cidr_whitelist` with
+      // `--cidr`), so default them rather than rejecting the request. A wrong
+      // type is still rejected.
+      const readonly = req.body.readonly ?? false;
+      const cidr_whitelist = req.body.cidr_whitelist ?? [];
 
-      if (!_.isBoolean(readonly) || !_.isArray(cidr_whitelist)) {
-        return next(ErrorCode.getCode(HTTP_STATUS.BAD_DATA, SUPPORT_ERRORS.PARAMETERS_NOT_VALID));
+      if (!isBoolean(readonly) || !Array.isArray(cidr_whitelist)) {
+        return next(errorUtils.getCode(HTTP_STATUS.BAD_DATA, SUPPORT_ERRORS.PARAMETERS_NOT_VALID));
       }
 
-      auth.authenticate(name, password, async (err, user: RemoteUser) => {
+      const unsupportedOptions = UNSUPPORTED_TOKEN_OPTIONS.filter(
+        (option) => isNil(req.body[option]) === false
+      );
+      if (unsupportedOptions.length > 0) {
+        logger.warn(
+          { options: unsupportedOptions.join(', '), userAgent: req.get('user-agent') ?? 'unknown' },
+          'granular access token options are not supported yet and will be ignored: @{options} (client: @{userAgent})'
+        );
+      }
+
+      auth.authenticate(name, password, async (err, user?: RemoteUser) => {
         if (err) {
           const errorCode = err.message ? HTTP_STATUS.UNAUTHORIZED : HTTP_STATUS.INTERNAL_ERROR;
-          return next(ErrorCode.getCode(errorCode, err.message));
+          return next(errorUtils.getCode(errorCode, err.message));
         }
 
         req.remote_user = user;
 
-        if (!_.isFunction(storage.saveToken)) {
+        if (typeof storage.saveToken !== 'function') {
           return next(
-            ErrorCode.getCode(HTTP_STATUS.NOT_IMPLEMENTED, SUPPORT_ERRORS.STORAGE_NOT_IMPLEMENT)
+            errorUtils.getCode(HTTP_STATUS.NOT_IMPLEMENTED, SUPPORT_ERRORS.STORAGE_NOT_IMPLEMENT)
           );
         }
 
         try {
-          const token = await getApiToken(auth, config, user, password);
+          const key = cryptoUtils.generateRandomHexString(16);
+          const token = await getApiToken(auth, config, user as RemoteUser, password, {
+            tokenKey: key,
+          });
           if (!token) {
-            throw getInternalError();
+            throw errorUtils.getInternalError();
           }
 
-          const key = stringToMD5(token);
           // TODO: use a utility here
-          const maskedToken = mask(token, 5);
+          const maskedToken = cryptoUtils.mask(token, 5);
           const created = new Date().getTime();
 
           /**
@@ -106,6 +160,7 @@ export default function (
 
           await storage.saveToken(saveToken);
           logger.debug({ key, name }, 'token @{key} was created for user @{name}');
+          res.set(HEADERS.CACHE_CONTROL, HEADERS.NO_CACHE);
           return next(
             normalizeToken({
               token,
@@ -116,34 +171,43 @@ export default function (
               created: saveToken.created,
             })
           );
-        } catch (error) {
+        } catch (error: any) {
           logger.error({ error: error.msg }, 'token creation has failed: @{error}');
-          return next(ErrorCode.getCode(HTTP_STATUS.INTERNAL_ERROR, error.message));
+          return next(errorUtils.getInternalError(error.message));
         }
       });
     }
   );
 
   route.delete(
-    '/-/npm/v1/tokens/token/:tokenKey',
+    TOKEN_API_ENDPOINTS.delete_token,
+    rateLimit(config?.userRateLimit),
     async (req: $RequestExtend, res: Response, next: $NextFunctionVer) => {
-      const {
-        params: { tokenKey },
-      } = req;
+      const tokenKey = reqUtils.paramToString(req.params.tokenKey);
       const { name } = req.remote_user;
 
-      if (_.isNil(name) === false) {
+      if (isNil(name) === false) {
         logger.debug({ name }, '@{name} has requested remove a token');
+        if (isReservedTokenKey(tokenKey)) {
+          // this row is not a token: deleting it here would switch two-factor
+          // off without the password and one-time password `npm profile
+          // disable-2fa` requires
+          logger.warn(
+            { tokenKey, name },
+            'refused to revoke reserved key @{tokenKey} for user @{name}'
+          );
+          return next(errorUtils.getNotFound('token not found'));
+        }
         try {
           await storage.deleteToken(name, tokenKey);
           logger.info({ tokenKey, name }, 'token id @{tokenKey} was revoked for user @{name}');
           return next({});
-        } catch (error) {
+        } catch (error: any) {
           logger.error({ error: error.msg }, 'token creation has failed: @{error}');
-          return next(ErrorCode.getCode(HTTP_STATUS.INTERNAL_ERROR, error.message));
+          return next(errorUtils.getCode(HTTP_STATUS.INTERNAL_ERROR, error.message));
         }
       }
-      return next(ErrorCode.getUnauthorized());
+      return next(errorUtils.getUnauthorized());
     }
   );
 }

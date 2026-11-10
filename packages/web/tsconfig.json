@@ -8,22 +8,22 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     {
+      "path": "../api"
+    },
+    {
       "path": "../auth"
     },
     {
       "path": "../config"
     },
     {
-      "path": "../core/commons-api"
-    },
-    {
-      "path": "../core/readme"
+      "path": "../core/core"
     },
     {
       "path": "../core/tarball"
     },
     {
-      "path": "../core/url"
+      "path": "../core/types"
     },
     {
       "path": "../loaders"
@@ -35,16 +35,10 @@
       "path": "../middleware"
     },
     {
-      "path": "../plugins/auth-memory"
-    },
-    {
-      "path": "../plugins/memory"
-    },
-    {
       "path": "../store"
     },
     {
-      "path": "../utils"
+      "path": "../tools/helpers"
     }
   ]
 }

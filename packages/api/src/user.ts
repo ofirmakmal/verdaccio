@@ -1,41 +1,165 @@
-import _ from 'lodash';
-import { Response, Router } from 'express';
 import buildDebug from 'debug';
+import type { RequestHandler, Response, Router } from 'express';
 
-import { getAuthenticatedMessage, validatePassword, ErrorCode } from '@verdaccio/utils';
-import { getApiToken } from '@verdaccio/auth';
-import { logger } from '@verdaccio/logger';
+import type { Auth } from '@verdaccio/auth';
+import { getApiToken, isBasicLoginRequest, parseBasicLoginCredentials } from '@verdaccio/auth';
 import { createRemoteUser } from '@verdaccio/config';
+import {
+  API_ERROR,
+  API_MESSAGE,
+  HEADERS,
+  HTTP_STATUS,
+  authUtils,
+  cryptoUtils,
+  errorUtils,
+  reqUtils,
+  validationUtils,
+} from '@verdaccio/core';
+import { USER_API_ENDPOINTS, rateLimit } from '@verdaccio/middleware';
+import type { Config, Logger, RemoteUser } from '@verdaccio/types';
 
-import { Config, RemoteUser } from '@verdaccio/types';
-import { IAuth } from '@verdaccio/auth';
-import { API_ERROR, API_MESSAGE, HTTP_STATUS } from '@verdaccio/commons-api';
-import { $RequestExtend, $NextFunctionVer } from '../types/custom';
+import type { $NextFunctionVer, $RequestExtend } from '../types/custom';
 
 const debug = buildDebug('verdaccio:api:user');
 
-export default function (route: Router, auth: IAuth, config: Config): void {
+export default function (
+  route: Router,
+  auth: Auth,
+  config: Config,
+  logger: Logger,
+  /** No-op unless the user logging in has two-factor enabled. */
+  requireOtp: RequestHandler = (_req, _res, next) => next()
+): void {
+  async function issueLoginToken(
+    req: $RequestExtend,
+    res: Response,
+    next: $NextFunctionVer,
+    name: string,
+    password: string,
+    user: RemoteUser | undefined
+  ): Promise<void> {
+    const restoredRemoteUser: RemoteUser = createRemoteUser(name, user?.groups || []);
+    const token = await getApiToken(auth, config, restoredRemoteUser, password);
+    debug('login: new token');
+    if (!token) {
+      return next(errorUtils.getUnauthorized());
+    }
+
+    res.status(HTTP_STATUS.CREATED);
+    res.set(HEADERS.CACHE_CONTROL, HEADERS.NO_CACHE);
+
+    const message = authUtils.getAuthenticatedMessage(name);
+    debug('login: created user message %o', message);
+
+    return next({
+      ok: message,
+      token,
+    });
+  }
+
+  function basicLoginAuth(req: $RequestExtend, _res: Response, next: $NextFunctionVer): void {
+    if (!isBasicLoginRequest(req, config.security)) {
+      return next();
+    }
+
+    const credentials = parseBasicLoginCredentials(req.headers.authorization as string);
+    if (!credentials) {
+      return next(errorUtils.getBadRequest(API_ERROR.BAD_USERNAME_PASSWORD));
+    }
+
+    auth.authenticate(credentials.user, credentials.password, (err, user): void => {
+      // a failing backend is reported, not mistaken for an unknown user to register
+      if (err && !(typeof err.status === 'number' && err.status < HTTP_STATUS.INTERNAL_ERROR)) {
+        return next(err);
+      }
+      if (!err && user) {
+        req.remote_user = user;
+      }
+      next();
+    });
+  }
+
   route.get(
-    '/-/user/:org_couchdb_user',
+    USER_API_ENDPOINTS.get_user,
+    rateLimit(config?.userRateLimit),
+    basicLoginAuth,
     function (req: $RequestExtend, res: Response, next: $NextFunctionVer): void {
       debug('verifying user');
-      const message = getAuthenticatedMessage(req.remote_user.name);
+
+      if (
+        !req.remote_user ||
+        typeof req.remote_user.name !== 'string' ||
+        req.remote_user.name === ''
+      ) {
+        // Only fires when a custom auth plugin's apiJWTmiddleware records the failure here;
+        // the bundled middleware propagates auth errors instead of storing them on remote_user.
+        if (req.remote_user?.error) {
+          debug('user authentication failed: %o', req.remote_user.error);
+          // a malformed Authorization header is a client error, not a credential failure
+          if (req.remote_user.error === API_ERROR.BAD_AUTH_HEADER) {
+            return next(errorUtils.getBadRequest(API_ERROR.BAD_AUTH_HEADER));
+          }
+          return next(errorUtils.getUnauthorized(API_ERROR.BAD_USERNAME_PASSWORD));
+        }
+        // When Bearer token verification fails the auth middleware intentionally keeps an
+        // anonymous user (without recording an error) to stay compatible with npm clients.
+        // If credentials were provided but the user is still anonymous they were rejected.
+        if (req.headers.authorization) {
+          debug('credentials were provided but rejected');
+          return next(errorUtils.getUnauthorized(API_ERROR.BAD_USERNAME_PASSWORD));
+        }
+        debug('user not logged in');
+        res.status(HTTP_STATUS.OK);
+        return next({ ok: false });
+      }
+
+      const orgCouchdbUser = reqUtils.paramToString(req.params.org_couchdb_user);
+      const userName = orgCouchdbUser?.split(':')[1] ?? '';
+      const message = authUtils.getAuthenticatedMessage(req.remote_user.name);
       debug('user authenticated message %o', message);
       res.status(HTTP_STATUS.OK);
       next({
+        // 'npm owner' requires user info
+        // TODO: we don't have the email
+        name: userName,
+        email: '',
         ok: message,
       });
     }
   );
 
+  /**
+ *  
+ *  body example
+ *  req.body = {
+      _id: "org.couchdb.user:jjjj",
+      name: "jjjj",
+      password: "jjjj",
+      type: "user",
+      roles: [],
+      date: "2022-07-08T15:51:04.002Z",
+    }
+ * 
+ * @export
+ * @param {Router} route
+ * @param {Auth} auth
+ * @param {Config} config
+ */
   route.put(
-    '/-/user/:org_couchdb_user/:_rev?/:revision?',
+    USER_API_ENDPOINTS.add_user,
+    rateLimit(config?.userRateLimit),
+    basicLoginAuth,
     function (req: $RequestExtend, res: Response, next: $NextFunctionVer): void {
       const { name, password } = req.body;
       debug('login or adduser');
-      const remoteName = req.remote_user.name;
+      const remoteName = req?.remote_user?.name;
 
-      if (_.isNil(remoteName) === false && _.isNil(name) === false && remoteName === name) {
+      const userName = reqUtils.paramToString(req.params.org_couchdb_user);
+      if (!validationUtils.validateUserName(userName, name)) {
+        return next(errorUtils.getBadRequest(API_ERROR.USERNAME_MISMATCH));
+      }
+
+      if (typeof remoteName !== 'undefined' && typeof name === 'string' && remoteName === name) {
         debug('login: no remote user detected');
         auth.authenticate(
           name,
@@ -46,34 +170,28 @@ export default function (route: Router, auth: IAuth, config: Config): void {
                 { name, err },
                 'authenticating for user @{username} failed. Error: @{err.message}'
               );
-              return next(
-                ErrorCode.getCode(HTTP_STATUS.UNAUTHORIZED, API_ERROR.BAD_USERNAME_PASSWORD)
-              );
+              return next(errorUtils.getUnauthorized(API_ERROR.BAD_USERNAME_PASSWORD));
             }
 
-            const restoredRemoteUser: RemoteUser = createRemoteUser(name, user.groups || []);
-            const token = await getApiToken(auth, config, restoredRemoteUser, password);
-            debug('login: new token');
-            if (!token) {
-              return next(ErrorCode.getUnauthorized());
-            }
-
-            res.status(HTTP_STATUS.CREATED);
-
-            const message = getAuthenticatedMessage(req.remote_user.name);
-            debug('login: created user message %o', message);
-
-            return next({
-              ok: message,
-              token,
-            });
+            Promise.resolve(
+              requireOtp(req, res, (otpError?: any) => {
+                if (otpError) {
+                  return next(otpError);
+                }
+                issueLoginToken(req, res, next, name, password, user as RemoteUser).catch(next);
+              })
+            ).catch(next);
           }
         );
       } else {
-        if (validatePassword(password) === false) {
+        debug('adduser: %o', name);
+        if (
+          validationUtils.validatePassword(password, config?.server?.passwordValidationRegex) ===
+          false
+        ) {
           debug('adduser: invalid password');
-          // eslint-disable-next-line new-cap
-          return next(ErrorCode.getCode(HTTP_STATUS.BAD_REQUEST, API_ERROR.PASSWORD_SHORT()));
+
+          return next(errorUtils.getCode(HTTP_STATUS.BAD_REQUEST, API_ERROR.PASSWORD_SHORT));
         }
 
         auth.add_user(name, password, async function (err, user): Promise<void> {
@@ -84,21 +202,26 @@ export default function (route: Router, auth: IAuth, config: Config): void {
               // and npm accepts only an 409 error.
               // So, changing status code here.
               return next(
-                ErrorCode.getCode(err.status, err.message) || ErrorCode.getConflict(err.message)
+                errorUtils.getCode(err.status, err.message) || errorUtils.getConflict(err.message)
               );
             }
             return next(err);
           }
 
           const token =
-            name && password ? await getApiToken(auth, config, user, password) : undefined;
-          debug('adduser: new token %o', token);
+            name && password
+              ? await getApiToken(auth, config, user as RemoteUser, password)
+              : undefined;
+          if (token) {
+            debug('adduser: new token %o', cryptoUtils.mask(token as string, 4));
+          }
           if (!token) {
-            return next(ErrorCode.getUnauthorized());
+            return next(errorUtils.getUnauthorized());
           }
 
           req.remote_user = user;
           res.status(HTTP_STATUS.CREATED);
+          res.set(HEADERS.CACHE_CONTROL, HEADERS.NO_CACHE);
           debug('adduser: user has been created');
           return next({
             ok: `user '${req.body.name}' created`,
@@ -110,7 +233,7 @@ export default function (route: Router, auth: IAuth, config: Config): void {
   );
 
   route.delete(
-    '/-/user/token/*',
+    USER_API_ENDPOINTS.user_token,
     function (req: $RequestExtend, res: Response, next: $NextFunctionVer): void {
       res.status(HTTP_STATUS.OK);
       next({

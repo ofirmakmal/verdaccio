@@ -1,25 +1,39 @@
+import { StyledEngineProvider } from '@mui/material/styles';
 import { render } from '@testing-library/react';
 import React from 'react';
 import { I18nextProvider } from 'react-i18next';
 
-import ThemeProvider from 'verdaccio-ui/design-tokens/ThemeProvider';
-import APIProvider from 'verdaccio-ui/providers/API/APIProvider';
-import AppConfigurationProvider from 'verdaccio-ui/providers/config';
+import { AppConfigurationProvider, ThemeProvider } from '@verdaccio/ui-components';
 
-import i18nConfig from '../../i18n/config';
+import i18nConfig from '../i18n/config';
+
+export const renderWith = (ui) =>
+  render(ui, {
+    wrapper: ({ children }) => (
+      <AppConfigurationProvider>
+        <StyledEngineProvider injectFirst={true}>
+          <ThemeProvider>
+            <I18nextProvider i18n={i18nConfig}>{children}</I18nextProvider>
+          </ThemeProvider>
+        </StyledEngineProvider>
+      </AppConfigurationProvider>
+    ),
+  });
 
 const customRender = (node: React.ReactElement, ...options: any) => {
   return render(
     <AppConfigurationProvider>
-      <APIProvider>
+      <StyledEngineProvider injectFirst={true}>
         <ThemeProvider>
           <I18nextProvider i18n={i18nConfig}>{node}</I18nextProvider>
         </ThemeProvider>
-      </APIProvider>
+      </StyledEngineProvider>
     </AppConfigurationProvider>,
     ...options
   );
 };
 
 export * from '@testing-library/react';
+// FIXME: rename all references with customRemder
 export { customRender as render };
+export { customRender };

@@ -1,6 +1,6 @@
 {
   "name": "verdaccio-audit",
-  "version": "11.0.0-alpha.4",
+  "version": "14.0.0-next-9.44",
   "description": "Verdaccio Middleware plugin to bypass npmjs audit",
   "keywords": [
     "private",
@@ -27,31 +27,48 @@
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "engines": {
-    "node": ">=10",
-    "npm": ">=6"
+    "node": ">=24"
   },
   "dependencies": {
-    "express": "^4.17.1",
-    "https-proxy-agent": "^5.0.0",
-    "node-fetch": "^2.6.0"
+    "@verdaccio/config": "workspace:9.0.0-next-9.44",
+    "@verdaccio/core": "workspace:9.0.0-next-9.44",
+    "express": "5.3.0",
+    "got": "16.1.0",
+    "hpagent": "1.2.0"
   },
   "devDependencies": {
-    "@verdaccio/types": "workspace:11.0.0-6-next.4",
-    "body-parser": "^1.19.0",
-    "nock": "^12.0.3",
-    "supertest": "^4.0.2"
+    "@verdaccio/auth": "workspace:9.0.0-next-9.44",
+    "@verdaccio/logger": "workspace:9.0.0-next-9.44",
+    "@verdaccio/plugin-verifier": "workspace:1.0.0-next-9.40",
+    "@verdaccio/types": "workspace:14.0.0-next-9.20",
+    "nock": "13.5.6",
+    "rimraf": "6.1.3",
+    "supertest": "7.1.4",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
   },
   "scripts": {
     "clean": "rimraf ./build",
-    "type-check": "tsc --noEmit -p tsconfig.build.json",
-    "build:types": "tsc --emitDeclarationOnly -p tsconfig.build.json",
-    "build:js": "babel src/ --out-dir build/ --copy-files --extensions \".ts,.tsx\" --source-maps",
-    "build": "pnpm run build:js && pnpm run build:types",
-    "watch": "pnpm build:js -- --watch",
-    "test": "cross-env NODE_ENV=test BABEL_ENV=test jest"
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "test": "vitest run --fsModuleCachePath node_modules/.vitest-cache"
   },
   "funding": {
     "type": "opencollective",
     "url": "https://opencollective.com/verdaccio"
+  },
+  "module": "./build/index.mjs",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.mjs"
+      },
+      "require": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.js"
+      }
+    },
+    "./build/*": "./build/*"
   }
 }
